@@ -1,0 +1,81 @@
+KỲ THI HỌC SINH GIỎI CÁC TRƯỜNG THPT CHUYÊN KHU VỰC DUYÊN HẢI VÀ ĐỒNG BẰNG BẮC BỘ NĂM 2024
+Trường THPT Chuyên Lam Sơn Thanh Hóa - Khối 11 - Thời gian: 180 phút
+
+SECTION I: LISTENING
+Audio URL: https://cdn.v-engolympiad.edu.vn/audio/dhbb-lamson-2024-mycorrhizal.mp3
+Transcript: In forest ecology, subterranean mycorrhizal networks—colloquially dubbed the Wood Wide Web—connect the root tips of vascular plants via symbiotic fungal mycelium. While trees supply fungi with photosynthetically fixed carbohydrates, the fungal filaments forage for recalcitrant soil phosphorus and nitrogen. Intriguingly, isotopic carbon tracing demonstrates that mature canopy "hub trees" transfer surplus carbon and defense signaling molecules to shaded understory seedlings during insect infestations.
+
+L1. Symbiotic fungal networks link plant roots using microscopic _______.
+L2. Fungi exchange soil minerals such as _______ for carbohydrates produced by trees.
+L3. Mature canopy trees transmit _______ to warn neighboring seedlings of insect attacks.
+
+SECTION II: LEXICO-GRAMMAR
+1. The opposition party accused the minister of casting _______ on the integrity of the electoral commission without a shred of evidence.
+A. aspersions
+B. shadows
+C. doubts
+D. slurs
+
+2. Local conservationists fought _______ and nail to prevent the ancient mangrove estuary from being dredged for a container port.
+A. tooth
+B. claw
+C. bone
+D. fist
+
+3. Having grown up in an austere monastic community, telling even a white lie went completely against the _______ for him.
+A. grain
+B. fiber
+C. thread
+D. bark
+
+4. Had it not been for the tugboat captain's split-second maneuver, the oil tanker _______ grounded on the coral reef.
+A. would have
+B. will have
+C. had
+D. may
+
+WF1. The witness's testimony was so _______ that the jury reached a unanimous verdict in under an hour. (COMPEL)
+WF2. Historians warn against the _______ of complex archival documents to fit modern political agendas. (SELECT)
+WF3. The firm's _______ expansion into speculative real estate ultimately triggered its insolvency. (PRUDENCE)
+
+ERR1. Hardly had the peace treaty signed when sporadic artillery fire erupted along the demarcation line.
+ERR2. Neither the chief executive nor the board members was aware of the offshore accounting irregularities.
+
+OPEN CLOZE PASSAGE:
+The invention of movable metal type in fifteenth-century Mainz was nothing [[OC1]] of a cognitive revolution. Within five decades, the proliferation of printed treatises had broken the monopoly [[OC2]] Latinate clerical elites over textual interpretation.
+
+SECTION III: READING
+READING PASSAGE:
+The phenomenon of urban shrinkage—defined as sustained population loss accompanied by structural economic transformation in post-industrial cities—poses a formidable challenge to conventional municipal planning. Because twentieth-century urban governance was predicated almost exclusively on managing demographic expansion, metropolitan infrastructure such as water mains, transit grids, and school districts suffers from severe diseconomies of scale when population density contracts by thirty percent or more. Rather than pursuing futile growth-chasing subsidies, progressive urbanists advocate "smart decline": decommissioning redundant grey infrastructure and converting vacant industrial parcels into urban carbon sinks and community wetlands.
+
+R1. [TFNG] Twentieth-century city planning was designed primarily to accommodate population growth rather than decline.
+R2. [TFNG] Advocates of "smart decline" recommend building new industrial factories on vacant land to attract residents back.
+
+SECTION IV: WRITING
+ST1. The maestro only rarely granted interviews to music journalists during his final decade. (SELDOM)
+-> Seldom did the maestro
+ST2. It was impossible for the mountaineers to pitch camp because of the ferocious blizzard. (MADE)
+-> The ferocious blizzard made it
+
+WRITING SUMMARY: Summarize the challenges of urban shrinkage and the concept of "smart decline" in 100-120 words.
+WRITING ESSAY: "Public funding for arts and heritage conservation is unjustifiable when municipal healthcare and infrastructure remain underfunded." To what extent do you agree or disagree? (350 words)
+
+=== ANSWER KEY ===
+L1: fungal mycelium
+L2: phosphorus and nitrogen
+L3: defense signaling molecules
+1: A
+2: A
+3: A
+4: A
+WF1: compelling
+WF2: selectivity
+WF3: imprudent
+ERR1: had the peace treaty signed -> had the peace treaty been signed
+ERR2: was aware -> were aware
+OC1: short
+OC2: of
+R1: TRUE
+R2: FALSE
+ST1: Seldom did the maestro grant interviews to music journalists during his final decade.
+ST2: The ferocious blizzard made it impossible for the mountaineers to pitch camp.

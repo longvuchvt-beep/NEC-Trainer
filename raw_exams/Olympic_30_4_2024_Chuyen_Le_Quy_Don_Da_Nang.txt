@@ -1,0 +1,68 @@
+KỲ THI OLYMPIC TRUYỀN THỐNG 30/4 LẦN THỨ XXVIII NĂM 2024
+Trường THPT Chuyên Lê Quý Đôn Đà Nẵng - Thời gian: 180 phút
+
+SECTION I: LISTENING
+Audio URL: https://cdn.v-engolympiad.edu.vn/audio/olympic304-danang-2024-epigraphy.mp3
+Transcript: In Mesoamerican archaeology, the decipherment of Maya hieroglyphic script stands as one of the supreme intellectual triumphs of the twentieth century. For decades, influential scholars erroneously assumed that the glyphs recorded solely astronomical calendars and esoteric priestly calculations, devoid of historical biography. However, Yuri Knorozov's demonstration that the script was логоsyllabic—combining phonetic syllables with ideograms—enabled epigraphers to read royal dynastic chronicles of warfare, alliances, and courtly intrigue across classic city-states like Tikal and Calakmul.
+
+L1. Early scholars mistakenly believed Maya glyphs documented only _______ and priestly calculations.
+L2. Yuri Knorozov proved that the Maya writing system was _______, blending phonetic signs with ideograms.
+
+SECTION II: LEXICO-GRAMMAR
+1. The young symphony conductor's debut in Vienna was _______ with the finest recordings of the twentieth century.
+A. on a par
+B. in a league
+C. at a level
+D. to a degree
+
+2. Not until the forensic accountant audited the Cayman Islands subsidiary _______ the full magnitude of the embezzlement come to light.
+A. did
+B. had
+C. was
+D. would
+
+3. Despite fierce lobbying from agricultural conglomerates, the environment minister stuck to her _______ and banned neonicotinoid pesticides.
+A. guns
+B. rifles
+C. swords
+D. shields
+
+WF1. The playwright's dialogue is celebrated for its _______ wit and razor-sharp social satire. (CAUSTICITY)
+WF2. Any _______ delay in administering antivenom can result in irreversible neurotoxic paralysis. (NECESSARY)
+
+ERR1. So esoteric the professor's lecture on quantum chromodynamics was that half the auditorium left at the intermission.
+
+OPEN CLOZE PASSAGE:
+For centuries, the Library of Alexandria stood [[OC1]] the preeminent beacon of Hellenistic scholarship. Its eventual destruction was not the result of a single cataclysmic conflagration, [[OC2]] rather a gradual attrition spanning several centuries of political upheaval.
+
+SECTION III: READING
+READING PASSAGE:
+Antibiotic resistance has emerged as one of the most acute biological threats of the twenty-first century, threatening to unwind a century of medical progress and render routine surgical interventions perilous. While the Darwinian evolution of resistant bacterial strains is a natural phenomenon, human clinical and agricultural practices have dramatically accelerated this selective pressure. In many jurisdictions, broad-spectrum antibiotics are dispensed over the counter for viral upper-respiratory infections against which they have zero therapeutic efficacy, while industrial livestock operations routinely administer sub-therapeutic doses of antimicrobials as growth promoters.
+
+R1. [TFNG] Broad-spectrum antibiotics are highly effective at curing viral upper-respiratory infections.
+R2. [TFNG] Industrial livestock farming contributes to antibiotic resistance by using low doses of antimicrobials to promote animal growth.
+
+SECTION IV: WRITING
+ST1. The investigative reporter refused to back down despite receiving numerous legal threats from the conglomerate. (GUNS)
+-> The investigative reporter stuck to
+ST2. Had the air traffic controller not intervened immediately, the two aircraft would have collided on the tarmac. (FOR)
+-> But for the air traffic controller's
+
+WRITING SUMMARY: Summarize the causes and clinical dangers of accelerated antibiotic resistance based on the passage (100-120 words).
+WRITING ESSAY: "To combat global antimicrobial resistance, international bodies should impose strict legal prohibitions on non-therapeutic agricultural antibiotic use, regardless of the economic cost to food producers." Discuss this statement and give your opinion (350 words).
+
+=== ANSWER KEY ===
+L1: astronomical calendars
+L2: logosyllabic
+1: A
+2: A
+3: A
+WF1: caustic
+WF2: unnecessary
+ERR1: the professor's lecture on quantum chromodynamics was -> was the professor's lecture on quantum chromodynamics
+OC1: as
+OC2: but
+R1: FALSE
+R2: TRUE
+ST1: The investigative reporter stuck to her guns despite receiving numerous legal threats from the conglomerate.
+ST2: But for the air traffic controller's immediate intervention, the two aircraft would have collided on the tarmac.

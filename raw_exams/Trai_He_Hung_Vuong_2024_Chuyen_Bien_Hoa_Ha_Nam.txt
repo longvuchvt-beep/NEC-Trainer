@@ -1,0 +1,67 @@
+KỲ THI OLYMPIC TRẠI HÈ HÙNG VƯƠNG LẦN THỨ XVIII NĂM 2024
+Trường THPT Chuyên Biên Hòa Hà Nam - Thời gian: 180 phút
+
+SECTION I: LISTENING
+Audio URL: https://cdn.v-engolympiad.edu.vn/audio/hungvuong-2024-quantum-metrology.mp3
+Transcript: Welcome to the National Physical Laboratory. For over a century, the international prototype of the kilogram was a physical cylinder of platinum-iridium alloy locked inside a subterranean vault in Sèvres, France. However, microscopic surface contamination meant its mass drifted relative to sister copies. In 2019, metrologists achieved a historic watershed by redefining the kilogram in terms of an invariant fundamental constant of nature: the Planck constant, measured via a Kibble balance using electromagnetic force.
+
+L1. The old kilogram prototype was crafted from a _______ alloy stored in France.
+L2. Metrologists redefined the kilogram using an invariant fundamental constant known as the _______.
+
+SECTION II: LEXICO-GRAMMAR
+1. The2019 redefinition of the SI units marked a historic _______ in the evolution of precision metrology.
+A. watershed
+B. waterlogged
+C. waterfall
+D. watermark
+
+2. No sooner had the biotech startup patented its mRNA delivery vector _______ pharmaceutical giants offered billion-dollar licensing deals.
+A. than
+B. when
+C. that
+D. as
+
+3. The senator's refusal to disclose his tax returns _______ serious doubt on his commitment to fiscal transparency.
+A. cast
+B. threw
+C. pitched
+D. hurled
+
+WF1. The regime's censorship apparatus sought to silence any _______ voices within the university faculty. (DISSENT)
+WF2. Prolonged exposure to microgravity induces _______ bone demineralization in astronauts. (REVERSE)
+
+ERR1. Under no circumstances unauthorized personnel are permitted to enter the cleanroom facility.
+
+OPEN CLOZE PASSAGE:
+Rarely [[OC1]] history witnessed a technological transition as rapid as the rise of solid-state computing. What once required an entire air-conditioned room of vacuum tubes can now be executed [[OC2]] a silicon die smaller than a fingernail.
+
+SECTION III: READING
+READING PASSAGE:
+In classical jurisprudence, copyright law sought to strike a delicate utilitarian equilibrium: granting authors a temporary exclusive monopoly to incentivize creative labor, while ensuring that works eventually entered the public domain to nourish future cultural synthesis. In the era of generative artificial intelligence, however, this eighteenth-century statutory architecture faces an existential crisis. When large language models ingest billions of copyrighted texts to learn statistical syntax without reproducing verbatim passages, legal scholars are divided over whether such training constitutes transformative fair use or systematic uncompensated appropriation.
+
+R1. [TFNG] Classical copyright law aimed to balance creator incentives with the eventual enrichment of the public domain.
+R2. [TFNG] Legal scholars have reached complete unanimity that AI training on copyrighted books is illegal.
+
+SECTION IV: WRITING
+ST1. The archaeological team only discovered the subterranean burial chamber by using ground-penetrating radar. (ONLY BY)
+-> Only by using ground-penetrating radar
+ST2. She was unable to accept the reality that her ancestral estate had been auctioned off. (RECONCILE)
+-> She could not reconcile
+
+WRITING ESSAY: "Generative artificial intelligence poses an existential threat to human artistic originality." Discuss this view and give your own opinion (350 words).
+
+=== ANSWER KEY ===
+L1: platinum-iridium
+L2: Planck constant
+1: A
+2: A
+3: A
+WF1: dissenting
+WF2: irreversible
+ERR1: unauthorized personnel are -> are unauthorized personnel
+OC1: has
+OC2: on
+R1: TRUE
+R2: FALSE
+ST1: Only by using ground-penetrating radar did the archaeological team discover the subterranean burial chamber.
+ST2: She could not reconcile herself to the fact that her ancestral estate had been auctioned off.

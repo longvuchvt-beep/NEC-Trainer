@@ -1,0 +1,185 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+html[data-theme="warm-paper"] {
+  --bg-canvas: #FAF7F2;
+  --bg-card: #FFFDF9;
+  --bg-elevated: #F4EFE6;
+  --text-primary: #1E293B;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  --border-subtle: #E6DEC8;
+  --accent-primary: #B45309;
+  --accent-soft: rgba(180, 83, 9, 0.12);
+  --input-bg: #FCF9F2;
+}
+
+html[data-theme="forest-matcha"] {
+  --bg-canvas: #EBF3F0;
+  --bg-card: #F6FBF9;
+  --bg-elevated: #DFECE7;
+  --text-primary: #133A36;
+  --text-secondary: #2B5B56;
+  --text-muted: #4C7A75;
+  --border-subtle: #C6DDD6;
+  --accent-primary: #0F766E;
+  --accent-soft: rgba(15, 118, 110, 0.12);
+  --input-bg: #F2F9F6;
+}
+
+html[data-theme="midnight-slate"] {
+  --bg-canvas: #0F172A;
+  --bg-card: #1E293B;
+  --bg-elevated: #0B1120;
+  --text-primary: #F1F5F9;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+  --border-subtle: #334155;
+  --accent-primary: #6366F1;
+  --accent-soft: rgba(99, 102, 241, 0.18);
+  --input-bg: #0F172A;
+}
+
+html[data-theme="oxford-sepia"] {
+  --bg-canvas: #F4ECD8;
+  --bg-card: #FBF6EA;
+  --bg-elevated: #EAE0C8;
+  --text-primary: #2D241E;
+  --text-secondary: #54463C;
+  --text-muted: #78675A;
+  --border-subtle: #DCD0B4;
+  --accent-primary: #92400E;
+  --accent-soft: rgba(146, 64, 14, 0.12);
+  --input-bg: #F7F0DF;
+}
+
+/* Font Size Scaling (A, A+, A++) */
+html[data-font-scale="A"] {
+  --passage-font-size: 1.04rem;
+  --question-font-size: 0.96rem;
+}
+
+html[data-font-scale="A+"] {
+  --passage-font-size: 1.16rem;
+  --question-font-size: 1.06rem;
+}
+
+html[data-font-scale="A++"] {
+  --passage-font-size: 1.28rem;
+  --question-font-size: 1.15rem;
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    transition: background-color 0.22s ease, color 0.22s ease;
+  }
+
+  .passage-prose {
+    font-family: 'Lora', 'Merriweather', Georgia, serif;
+    line-height: 1.85;
+    font-size: var(--passage-font-size, 1.05rem);
+    letter-spacing: 0.01em;
+    color: var(--text-primary);
+  }
+
+  .passage-prose p {
+    margin-bottom: 1.25em;
+  }
+
+  .question-prose {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: var(--question-font-size, 0.96rem);
+    line-height: 1.65;
+  }
+
+  .cloze-mono-input {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Adaptive Theme Surface Helpers */
+.eyecare-canvas {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+.eyecare-card {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+.eyecare-elevated {
+  background-color: var(--bg-elevated);
+  border-color: var(--border-subtle);
+}
+
+/* Custom sleek scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(100, 116, 139, 0.1);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.55);
+}
+
+@keyframes pulse-evidence {
+  0%, 100% {
+    background-color: rgba(245, 158, 11, 0.38);
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.28);
+  }
+  50% {
+    background-color: rgba(245, 158, 11, 0.68);
+    box-shadow: 0 0 0 8px rgba(245, 158, 11, 0.2);
+  }
+}
+
+.evidence-highlight,
+.evidence-anchor-active {
+  animation: pulse-evidence 1.6s ease-in-out infinite;
+  background-color: rgba(245, 158, 11, 0.45);
+  border-bottom: 2px solid #d97706;
+  border-radius: 4px;
+  padding: 2px 5px;
+  font-weight: 600;
+}
+
+.evidence-anchor {
+  transition: background-color 0.25s ease, box-shadow 0.25s ease;
+  border-bottom: 1px dashed rgba(217, 119, 6, 0.55);
+}
+
+@keyframes xp-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.9);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(0px) scale(1.05);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-10px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-18px) scale(0.95);
+  }
+}
+
+.animate-xp-burst {
+  animation: xp-float-up 1.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}

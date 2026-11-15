@@ -1,0 +1,98 @@
+KỲ THI CHỌN ĐỘI TUYỂN DỰ THI HỌC SINH GIỎI QUỐC GIA THPT NĂM 2025
+Trường THPT Chuyên Phan Bội Châu Nghệ An - Thời gian: 180 phút
+
+SECTION I: LISTENING
+Audio URL: https://cdn.v-engolympiad.edu.vn/audio/pbc-nghean-2025-paleoclimate.mp3
+Transcript: Welcome to the Paleoclimatology Colloquium. By analyzing oxygen isotope ratios trapped within Antarctic ice cores, glaciologists reconstruct atmospheric temperatures spanning eight hundred millennia. Specifically, sudden Dansgaard-Oeschger events demonstrate that North Atlantic thermohaline circulation can tip abruptly within mere decades. When freshwater glacial melt dilutes surface salinity, deep-water convection stalls, plunging Northern Europe into centuries of severe cryogenic aridity.
+
+L1. Glaciologists reconstruct ancient temperatures by examining _______ preserved in Antarctic ice cores.
+L2. Freshwater meltwater reduces _______, which halts deep-water oceanic convection.
+L3. The stalling of oceanic circulation triggers prolonged _______ across Northern Europe.
+
+SECTION II: LEXICO-GRAMMAR
+1. The whistle-blower’s poignant account of corporate malfeasance really struck a _______ with the parliamentary oversight committee.
+A. chord
+B. string
+C. note
+D. key
+
+2. Scarcely had the austerity budget been unveiled _______ thousands of municipal workers staged a wildcat strike.
+A. when
+B. than
+C. that
+D. as
+
+3. The senior partner took immediate _______ at the junior associate's suggestion that the firm's auditing procedures were outdated.
+A. umbrage
+B. offense
+C.resentment
+D. pique
+
+4. While the board of directors paid _______ service to environmental sustainability, their capital expenditure remained overwhelmingly fossil-fuel-intensive.
+A. lip
+B. mouth
+C. tongue
+D. tooth
+
+5. It is imperative that every clinical trial participant _______ fully apprised of potential adverse immunological reactions.
+A. be
+B. is
+C. was
+D. were
+
+WF1. The diplomat's memoir provides an _______ analysis of why the peace accord collapsed. (FLINCH)
+WF2. Unchecked algorithmic trading can amplify market _______ during macroeconomic shocks. (VOLATILE)
+WF3. Critics argued that the monument's neo-imperial aesthetic was wholly _______ with a modern pluralistic republic. (CONGRUENT)
+
+ERR1. Not only the central bank raised benchmark interest rates, but it also curtailed mortgage liquidity.
+ERR2. The number of independent bookstores operating in metropolitan centers have declined precipitously over the past decade.
+
+OPEN CLOZE PASSAGE:
+Scientific literacy consists not merely [[OC1]] memorizing an inventory of established facts, [[OC2]] in understanding the methodological skepticism that undergirds empirical inquiry. Far [[OC3]] claiming absolute infallibility, genuine science thrives on continuous self-correction.
+
+SECTION III: READING
+READING PASSAGE:
+Throughout the nineteenth century, classical economists conceptualized human decision-making through the prism of Homo economicus—an idealized agent endowed with unbounded computational capacity and stable self-interest. However, the pioneering work of Daniel Kahneman and Amos Tversky dismantled this axiomatic edifice by demonstrating that human judgment under uncertainty is systematically skewed by cognitive heuristics. Rather than calculating actuarial probabilities from scratch, individuals rely on mental shortcuts such as the availability heuristic, whereby the perceived likelihood of an event is dictated by how Vividly examples come to mind.
+
+Furthermore, Prospect Theory revealed that human sensitivity to losses is markedly asymmetrical relative to equivalent gains: the psychological pain of losing one hundred dollars is roughly twice as intense as the gratification of winning the same sum.
+
+R1. [TFNG] Nineteenth-century classical economists believed that human beings possess unlimited rational calculation abilities.
+R2. [TFNG] According to Prospect Theory, people experience equal emotional intensity when gaining or losing the same amount of money.
+R3. Why do individuals frequently misjudge statistical probabilities according to Kahneman and Tversky?
+A. Because they rely on mental shortcuts based on how easily examples can be recalled.
+B. Because they refuse to use currency in experimental settings.
+C. Because classical economics prohibited mathematical probability.
+D. Because losses are less memorable than financial gains.
+
+SECTION IV: WRITING
+ST1. The chancellor only acknowledged the severity of the fiscal deficit after sovereign bond yields spiked. (DID)
+-> Only after sovereign bond yields spiked
+ST2. Her mastery of medieval paleography is far superior to that of any other scholar in the department. (PAR)
+-> No other scholar in the department is on
+
+WRITING SUMMARY: Summarize the passage above on the shift from Homo economicus to Behavioral Economics and Prospect Theory in 100-120 words.
+WRITING CHART: Describe the comparative trends in national R&D expenditure across four ASEAN economies from 2015 to 2025 (150 words).
+WRITING ESSAY: "Specialized academic competitions cultivate resilience and intellectual excellence, yet critics claim they foster narrow test-taking pragmatism." Discuss both views and give your own opinion (350 words).
+
+=== ANSWER KEY (ĐÁP ÁN CHÍNH THỨC - KHÔNG KÈM LỜI GIẢI) ===
+L1: oxygen isotope ratios
+L2: surface salinity
+L3: cryogenic aridity
+1: A
+2: A
+3: A
+4: A
+5: A
+WF1: unflinching
+WF2: volatility
+WF3: incongruent
+ERR1: the central bank raised -> did the central bank raise
+ERR2: have declined -> has declined
+OC1: in
+OC2: but
+OC3: from
+R1: TRUE
+R2: FALSE
+R3: A
+ST1: Only after sovereign bond yields spiked did the chancellor acknowledge the severity of the fiscal deficit.
+ST2: No other scholar in the department is on a par with her in mastery of medieval paleography.

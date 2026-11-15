@@ -1,0 +1,187 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// TIER 1: EXAM (HSGQG, DHBB, TRAI_HE_HUNG_VUONG, OLYMPIC_30_4, SELECTION)
+// ============================================================================
+model Exam {
+  id               String        @id @default(cuid())
+  slug             String        @unique
+  title            String
+  tournament       String        // HSGQG | DHBB | TRAI_HE_HUNG_VUONG | OLYMPIC_30_4 | PROVINCIAL_SELECTION
+  year             Int
+  schoolOrProvince String
+  gradeLevel       String        @default("11-12")
+  durationMinutes  Int           @default(180)
+  cefrLevel        String        @default("C1-C2")
+  totalPoints      Float         @default(200)
+  sourceFile       String?
+  isPublished      Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  sections         ExamSection[]
+  attempts         ExamAttempt[]
+
+  @@index([tournament, year])
+}
+
+// ============================================================================
+// TIER 2: EXAM SECTION (LISTENING, LEXICO_GRAMMAR, READING, WRITING)
+// ============================================================================
+model ExamSection {
+  id             String          @id @default(cuid())
+  examId         String
+  exam           Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  skill          String          // LISTENING | LEXICO_GRAMMAR | READING | WRITING
+  title          String
+  instructions   String?
+  orderIndex     Int             @default(1)
+  maxPoints      Float           @default(50)
+  audioUrl       String?
+  transcript     String?
+
+  questionGroups QuestionGroup[]
+
+  @@index([examId, orderIndex])
+}
+
+// ============================================================================
+// TIER 3: QUESTION GROUP (Shared Passage, Cloze Text, Paragraph/Heading Bank)
+// ============================================================================
+model QuestionGroup {
+  id                String      @id @default(cuid())
+  sectionId         String
+  section           ExamSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  groupType         String      // MCQ_GRAMMAR | WORD_FORMATION_SENTENCE | WORD_FORMATION_PASSAGE | OPEN_CLOZE | GUIDED_CLOZE | GAPPED_TEXT | MATCHING_HEADINGS | TFNG_READING | ERROR_CORRECTION_PASSAGE | SENTENCE_TRANSFORM | LISTENING_NOTE_COMPLETION | WRITING_PROMPT
+  title             String
+  instructions      String
+  orderIndex        Int         @default(1)
+  stimulusTitle     String?
+  stimulusText      String?     // Supports inline {{questionNumber}} tokens, paragraphs, or numbered lines
+  audioUrl          String?
+  transcript        String?
+  transcriptHtml    String?     // Transcript with injected <span id="ev-q{number}" class="evidence-anchor">
+  sharedOptionsJson String?     // JSON: Paragraph Bank (A-H) for GAPPED_TEXT, Headings (i-x) for MATCHING_HEADINGS, or Chart Dataset
+
+  questions         Question[]
+
+  @@index([sectionId, orderIndex])
+}
+
+// ============================================================================
+// TIER 4: QUESTION (Individual Gradable Item + Deep C1/C2 Explanation)
+// ============================================================================
+model Question {
+  id                     String           @id @default(cuid())
+  groupId                String
+  group                  QuestionGroup    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  questionNumber         Int
+  questionType           String           // MCQ | OPEN_CLOZE | WORD_FORMATION | WORD_FORMATION_PASSAGE | GAPPED_TEXT | MATCHING_HEADINGS | TFNG | SENTENCE_TRANSFORM | ERROR_CORRECTION | NOTE_COMPLETION | WRITING_TASK
+  stem                   String?
+  givenWord              String?          // Root word for Word Formation (e.g. COMPROMISE) or Keyword for Sentence Transform (e.g. BUDGE)
+  promptPrefix           String?          // Sentence starter for Sentence Transformation
+  promptSuffix           String?
+  maxWords               Int?             // Strict word limit e.g. 3 for "NO MORE THAN THREE WORDS"
+  optionsJson            String?          // JSON array of { id, text } for MCQ / Guided Cloze
+  correctAnswer          String           // Canonical answer key (or "errorWord -> correction" for ERROR_CORRECTION)
+  acceptedAnswersJson    String           @default("[]") // JSON array of patterns supporting optional "(word)" and "a/b" slash variants
+  points                 Float            @default(1.0)
+  grammarRule            String?
+  explanationVi          String?
+  explanationEn          String?
+  distractorAnalysisJson String?          // JSON object mapping option A/B/C/D -> linguistic analysis
+  evidenceQuote          String?          // Exact quote in stimulusText/transcript for 1-click evidence highlighting
+  explanationJson        String?          // Full structured C1/C2 explanation JSON (grammarOrLexicalPoint, detailedAnalysisVi, optionBreakdown, evidenceQuote, evidenceAnchorId, extractedVocab)
+  topicTagsJson          String           @default("[]") // JSON array of topic/linguistic tags e.g. ["Inversion", "C2 Idiom", "CPE Collocation"]
+
+  attemptAnswers         AttemptAnswer[]
+  vocabularyCards        VocabularyCard[]
+
+  @@index([groupId, questionNumber])
+}
+
+// ============================================================================
+// USER ATTEMPTS, ANSWERS, WRITING SUBMISSIONS & SRS VOCABULARY CARDS
+// ============================================================================
+model ExamAttempt {
+  id               String          @id @default(cuid())
+  examId           String
+  exam             Exam            @relation(fields: [examId], references: [id], onDelete: Cascade)
+  mode             String          @default("SIMULATION") // SIMULATION | PRACTICE
+  status           String          @default("COMPLETED")  // IN_PROGRESS | COMPLETED
+  totalScore       Float           @default(0)
+  maxScore         Float           @default(20)
+  percentage       Float           @default(0)
+  timeSpentSeconds Int             @default(0)
+  startedAt        DateTime        @default(now())
+  completedAt      DateTime?
+
+  answers          AttemptAnswer[]
+
+  @@index([examId, startedAt])
+}
+
+model AttemptAnswer {
+  id                 String      @id @default(cuid())
+  attemptId          String
+  attempt            ExamAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId         String
+  question           Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userResponse       String
+  normalizedResponse String?
+  isCorrect          Boolean     @default(false)
+  awardedPoints      Float       @default(0)
+  flaggedForReview   Boolean     @default(false)
+  feedbackNote       String?
+
+  @@index([attemptId, questionId])
+}
+
+model WritingSubmission {
+  id                     String   @id @default(cuid())
+  examId                 String?
+  taskType               String   // SUMMARY | CHART | ESSAY
+  promptText             String
+  sourcePassage          String?
+  studentResponse        String
+  wordCount              Int
+  taskAchievementScore   Float    @default(0)
+  coherenceCohesionScore Float    @default(0)
+  lexicalResourceScore   Float    @default(0)
+  grammaticalRangeScore  Float    @default(0)
+  overallScore           Float    @default(0)
+  feedbackJson           String
+  sentenceUpgradesJson   String   @default("[]")
+  createdAt              DateTime @default(now())
+}
+
+model VocabularyCard {
+  id              String    @id @default(cuid())
+  questionId      String?
+  question        Question? @relation(fields: [questionId], references: [id], onDelete: SetNull)
+  term            String
+  category        String    @default("IDIOM") // IDIOM | PHRASAL_VERB | COLLOCATION | WORD_FORMATION | INVERSION
+  phonetic        String?
+  definitionEn    String
+  definitionVi    String
+  exampleSentence String?
+  sourceExamTitle String?
+  grammarNote     String?
+  wordFamilyJson  String    @default("[]")
+  repetitionLevel Int       @default(0)
+  srsStage        Int       @default(1)
+  easeFactor      Float     @default(2.5)
+  intervalDays    Int       @default(1)
+  nextReviewDate  DateTime  @default(now())
+  nextReviewAt    DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  @@index([category, nextReviewDate])
+}
