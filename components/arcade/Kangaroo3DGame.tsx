@@ -5,7 +5,6 @@ import * as THREE from "three";
 import {
   Heart,
   Zap,
-  RotateCcw,
   Volume2,
   VolumeX,
   Trophy,
@@ -13,12 +12,24 @@ import {
   XCircle,
   Play,
   BookmarkPlus,
+  BookOpen,
+  ArrowRight,
+  Layers,
+  AlertCircle,
 } from "lucide-react";
 import {
   extractReflexMicroQuestions,
   ArcadeReflexQuestion,
 } from "../../lib/arcade/question-extractor";
 import { addUserXp } from "../../lib/auth/auth-store";
+import {
+  getFullSettings,
+  autoSaveMistakeItem,
+  buildDeepLinguisticBreakdown,
+  DeepLinguisticBreakdown,
+  speakEnglishText,
+  incrementDailyAnsweredCount,
+} from "../../lib/linguistics/deep-linguistic-engine";
 
 interface Kangaroo3DGameProps {
   exams?: any[];
@@ -52,7 +63,9 @@ function playSynthTone(
   if (!enabled || typeof window === "undefined") return;
   try {
     const AudioCtx =
-      window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext })
+        .webkitAudioContext;
     if (!AudioCtx) return;
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();
@@ -86,18 +99,35 @@ function playSynthTone(
       osc.start(now);
       osc.stop(now + 0.3);
     }
-  } catch {
-    // ignore audio errors
-  }
+  } catch {}
 }
 
 export default function Kangaroo3DGame({
   exams = [],
   onSaveVocab,
 }: Kangaroo3DGameProps) {
+  const [settings, setSettings] = useState(() => getFullSettings());
   const [category, setCategory] = useState<string>("ALL");
-  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(
+    () => getFullSettings().soundAndHaptics
+  );
   const [roundSeed, setRoundSeed] = useState<number>(1);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSettingsChange = () => {
+      const next = getFullSettings();
+      setSettings(next);
+      setSoundEnabled(next.soundAndHaptics);
+    };
+    window.addEventListener("veng-settings-changed", onSettingsChange);
+    return () =>
+      window.removeEventListener("veng-settings-changed", onSettingsChange);
+  }, []);
+
+  const QUESTION_DURATION_MS = Math.round(
+    (settings.kangarooSpeedSec || 6) * 1000
+  );
 
   const questions = useMemo(() => {
     const pool = extractReflexMicroQuestions(exams, category);
@@ -121,23 +151,29 @@ export default function Kangaroo3DGame({
   const [bestStreak, setBestStreak] = useState<number>(0);
   const [hopsCount, setHopsCount] = useState<number>(0);
   const [gameOver, setGameOver] = useState<boolean>(false);
-  const [timeLeftMs, setTimeLeftMs] = useState<number>(10000);
-  const [selectedOptionIdx, setSelectedOptionIdx] = useState<number | null>(null);
-  const [answerFeedback, setAnswerFeedback] = useState<"correct" | "wrong" | null>(null);
+  const [timeLeftMs, setTimeLeftMs] = useState<number>(QUESTION_DURATION_MS);
+  const [selectedOptionIdx, setSelectedOptionIdx] = useState<number | null>(
+    null
+  );
+  const [answerFeedback, setAnswerFeedback] = useState<
+    "correct" | "wrong" | null
+  >(null);
+  const [pausedMistakeBreakdown, setPausedMistakeBreakdown] =
+    useState<DeepLinguisticBreakdown | null>(null);
+  const [autoSaveToast, setAutoSaveToast] = useState<string | null>(null);
   const [missedItems, setMissedItems] = useState<ArcadeReflexQuestion[]>([]);
   const [savedIds, setSavedIds] = useState<Record<string, boolean>>({});
   const [xpPopups, setXpPopups] = useState<FloatingXpPopup[]>([]);
 
-  // 3D Animation State Ref shared with requestAnimationFrame loop
   const animRef = useRef<{
     state: "idle" | "jumping" | "splashing";
-    progress: number; // 0..1
+    progress: number;
     startPillarIndex: number;
     targetPillarIndex: number;
-    jumpSpan: number; // 1 for normal hop, 2 for streak super-leap
+    jumpSpan: number;
     cameraX: number;
     shakeIntensity: number;
-    sinkFactor: number; // 0..1 based on timer running out
+    sinkFactor: number;
   }>({
     state: "idle",
     progress: 0,
@@ -151,18 +187,20 @@ export default function Kangaroo3DGame({
 
   const mountRef = useRef<HTMLDivElement | null>(null);
   const currentQuestion = questions[qIndex % Math.max(1, questions.length)];
-  const QUESTION_DURATION_MS = 10000;
 
-  // Keep sinkFactor updated from timeLeftMs
   useEffect(() => {
-    const ratio = 1 - Math.max(0, Math.min(1, timeLeftMs / QUESTION_DURATION_MS));
+    const ratio =
+      1 - Math.max(0, Math.min(1, timeLeftMs / QUESTION_DURATION_MS));
     animRef.current.sinkFactor = ratio * 0.55;
-  }, [timeLeftMs]);
+  }, [timeLeftMs, QUESTION_DURATION_MS]);
 
   const pushXpPopup = useCallback(
     (text: string, subtext: string, isPositive: boolean) => {
       const id = Date.now() + Math.random();
-      setXpPopups((prev) => [...prev.slice(-2), { id, text, subtext, isPositive }]);
+      setXpPopups((prev) => [
+        ...prev.slice(-2),
+        { id, text, subtext, isPositive },
+      ]);
       setTimeout(() => {
         setXpPopups((prev) => prev.filter((p) => p.id !== id));
       }, 1100);
@@ -170,19 +208,38 @@ export default function Kangaroo3DGame({
     []
   );
 
-  // Advance to next question smoothly
   const advanceNextQuestion = useCallback(() => {
     setSelectedOptionIdx(null);
     setAnswerFeedback(null);
+    setPausedMistakeBreakdown(null);
+    setAutoSaveToast(null);
     setTimeLeftMs(QUESTION_DURATION_MS);
+    animRef.current.state = "idle";
+    animRef.current.progress = 0;
     setQIndex((prev) => prev + 1);
-  }, []);
+  }, [QUESTION_DURATION_MS]);
 
-  // Handle Answer Selection
+  const handleContinueAfterMistake = useCallback(() => {
+    if (lives <= 0) {
+      setPausedMistakeBreakdown(null);
+      setGameOver(true);
+    } else {
+      advanceNextQuestion();
+    }
+  }, [lives, advanceNextQuestion]);
+
   const handleSelectAnswer = useCallback(
     (optIndex: number) => {
-      if (gameOver || selectedOptionIdx !== null || !currentQuestion) return;
+      if (
+        gameOver ||
+        selectedOptionIdx !== null ||
+        pausedMistakeBreakdown !== null ||
+        !currentQuestion
+      ) {
+        return;
+      }
       setSelectedOptionIdx(optIndex);
+      incrementDailyAnsweredCount(1);
 
       const isCorrect = optIndex === currentQuestion.correctIndex;
       if (isCorrect) {
@@ -205,7 +262,6 @@ export default function Kangaroo3DGame({
           true
         );
 
-        // Trigger 3D Parabolic Jump
         const curPillar = animRef.current.targetPillarIndex;
         animRef.current.state = "jumping";
         animRef.current.progress = 0;
@@ -217,21 +273,60 @@ export default function Kangaroo3DGame({
           advanceNextQuestion();
         }, 460);
       } else {
+        const letters = ["A", "B", "C", "D"];
+        const userWrongLetter =
+          optIndex >= 0 && optIndex < 4 ? letters[optIndex] : "Hết giờ";
+
         setAnswerFeedback("wrong");
         setStreak(0);
         setMissedItems((prev) =>
           prev.some((m) => m.id === currentQuestion.id)
             ? prev
-            : [currentQuestion, ...prev].slice(0, 12)
+            : [currentQuestion, ...prev].slice(0, 15)
         );
         playSynthTone("splash", soundEnabled);
-        pushXpPopup(
-          `Đáp án: ${currentQuestion.correctLetter}`,
-          currentQuestion.correctText,
-          false
-        );
 
-        // Trigger 3D Splash & Camera Shake
+        // Build 4-layer deep linguistic breakdown & Auto-Save to Mistake Vault
+        const breakdown = buildDeepLinguisticBreakdown({
+          stem: currentQuestion.stem,
+          correctText: currentQuestion.correctText,
+          correctLetter: currentQuestion.correctLetter,
+          options: currentQuestion.options,
+          targetTerm: currentQuestion.targetTerm,
+          category: currentQuestion.category,
+          explanation: currentQuestion.shortTip,
+        });
+
+        const autoRes = autoSaveMistakeItem({
+          questionId: currentQuestion.id,
+          stem: currentQuestion.stem,
+          options: currentQuestion.options,
+          userWrongAnswer: userWrongLetter,
+          correctAnswer: currentQuestion.correctLetter,
+          correctText: currentQuestion.correctText,
+          targetTerm: currentQuestion.targetTerm,
+          category: currentQuestion.category,
+          explanation: currentQuestion.shortTip,
+          sourceTag: currentQuestion.sourceTag || "Kangaroo 3D",
+        });
+
+        if (autoRes.saved) {
+          setAutoSaveToast(
+            "Đã tự động lưu vào Sổ Từ Sai kèm giải thích chuyên sâu"
+          );
+          if (onSaveVocab) {
+            onSaveVocab({
+              word: breakdown.targetExpression,
+              meaning: breakdown.etymologyAndNuance,
+              collocations: breakdown.collocationAndSyntax,
+              example: currentQuestion.stem.replace(
+                /_{2,}/g,
+                currentQuestion.correctText
+              ),
+            });
+          }
+        }
+
         animRef.current.state = "splashing";
         animRef.current.progress = 0;
         animRef.current.shakeIntensity = 0.32;
@@ -239,56 +334,86 @@ export default function Kangaroo3DGame({
         const nextLives = lives - 1;
         setLives(nextLives);
 
-        setTimeout(() => {
-          if (nextLives <= 0) {
-            setGameOver(true);
-          } else {
-            animRef.current.state = "idle";
-            animRef.current.progress = 0;
-            advanceNextQuestion();
-          }
-        }, 680);
+        const activeSettings = getFullSettings();
+        if (activeSettings.pauseOnMistake) {
+          // Pause gameplay and display the 4-Layer Deep Linguistic Breakdown
+          setPausedMistakeBreakdown(breakdown);
+        } else {
+          setTimeout(() => {
+            if (nextLives <= 0) {
+              setGameOver(true);
+            } else {
+              advanceNextQuestion();
+            }
+          }, 750);
+        }
       }
     },
     [
       gameOver,
       selectedOptionIdx,
+      pausedMistakeBreakdown,
       currentQuestion,
       streak,
       lives,
       soundEnabled,
       pushXpPopup,
       advanceNextQuestion,
+      onSaveVocab,
     ]
   );
 
-  // 100ms Timer Tick
+  // 100ms Timer Tick (Paused automatically when pausedMistakeBreakdown is active)
   useEffect(() => {
-    if (gameOver || selectedOptionIdx !== null) return;
+    if (
+      gameOver ||
+      selectedOptionIdx !== null ||
+      pausedMistakeBreakdown !== null
+    ) {
+      return;
+    }
     const interval = setInterval(() => {
       setTimeLeftMs((prev) => {
-        if (prev <= 100) {
-          return 0;
-        }
+        if (prev <= 100) return 0;
         return prev - 100;
       });
     }, 100);
     return () => clearInterval(interval);
-  }, [gameOver, selectedOptionIdx]);
+  }, [gameOver, selectedOptionIdx, pausedMistakeBreakdown]);
 
-  // Trigger timeout splash when timeLeftMs hits 0
   useEffect(() => {
-    if (timeLeftMs === 0 && !gameOver && selectedOptionIdx === null) {
+    if (
+      timeLeftMs === 0 &&
+      !gameOver &&
+      selectedOptionIdx === null &&
+      pausedMistakeBreakdown === null
+    ) {
       handleSelectAnswer(-1);
     }
-  }, [timeLeftMs, gameOver, selectedOptionIdx, handleSelectAnswer]);
+  }, [
+    timeLeftMs,
+    gameOver,
+    selectedOptionIdx,
+    pausedMistakeBreakdown,
+    handleSelectAnswer,
+  ]);
 
-  // Keyboard shortcuts (1-4 or A-D)
+  // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (gameOver || selectedOptionIdx !== null) return;
+      if (gameOver) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (pausedMistakeBreakdown !== null) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleContinueAfterMistake();
+        }
+        return;
+      }
+
+      if (selectedOptionIdx !== null) return;
       const key = e.key.toUpperCase();
       if (key === "1" || key === "A") handleSelectAnswer(0);
       else if (key === "2" || key === "B") handleSelectAnswer(1);
@@ -297,7 +422,13 @@ export default function Kangaroo3DGame({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [gameOver, selectedOptionIdx, handleSelectAnswer]);
+  }, [
+    gameOver,
+    selectedOptionIdx,
+    pausedMistakeBreakdown,
+    handleSelectAnswer,
+    handleContinueAfterMistake,
+  ]);
 
   // Initialize Three.js 3D River, Hexagonal Pillars, Low-Poly Kangaroo & Particles
   useEffect(() => {
@@ -305,22 +436,20 @@ export default function Kangaroo3DGame({
     if (!container || typeof window === "undefined") return;
 
     const width = container.clientWidth || 390;
-    const height = container.clientHeight || 260;
+    const height = container.clientHeight || 240;
 
     const PILLAR_SPACING = 3.4;
     const TOTAL_PILLARS = 18;
     let frameId = 0;
 
-    // Build Low-Poly Kangaroo Group helper
     const buildLowPolyKangaroo = () => {
       const group = new THREE.Group();
-
       const furMat = new THREE.MeshStandardMaterial({
-        color: 0xd97706, // warm amber-brown kangaroo coat
+        color: 0xd97706,
         roughness: 0.65,
       });
       const bellyMat = new THREE.MeshStandardMaterial({
-        color: 0xfde68a, // soft cream belly
+        color: 0xfde68a,
         roughness: 0.75,
       });
       const darkMat = new THREE.MeshStandardMaterial({
@@ -328,41 +457,52 @@ export default function Kangaroo3DGame({
         roughness: 0.4,
       });
 
-      // Torso
-      const torso = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.92, 0.58), furMat);
+      const torso = new THREE.Mesh(
+        new THREE.BoxGeometry(0.68, 0.92, 0.58),
+        furMat
+      );
       torso.position.set(0, 0.78, 0);
       torso.rotation.z = -0.12;
       group.add(torso);
 
-      // Belly pouch
-      const belly = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.64, 0.44), bellyMat);
+      const belly = new THREE.Mesh(
+        new THREE.BoxGeometry(0.18, 0.64, 0.44),
+        bellyMat
+      );
       belly.position.set(0.3, 0.72, 0);
       belly.rotation.z = -0.12;
       group.add(belly);
 
-      // Head
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.44, 0.44), furMat);
+      const head = new THREE.Mesh(
+        new THREE.BoxGeometry(0.56, 0.44, 0.44),
+        furMat
+      );
       head.position.set(0.22, 1.38, 0);
       group.add(head);
 
-      // Snout
-      const snout = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.24, 0.28), furMat);
+      const snout = new THREE.Mesh(
+        new THREE.BoxGeometry(0.32, 0.24, 0.28),
+        furMat
+      );
       snout.position.set(0.54, 1.32, 0);
       group.add(snout);
 
-      // Nose tip
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.12), darkMat);
+      const nose = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.1, 0.12),
+        darkMat
+      );
       nose.position.set(0.71, 1.35, 0);
       group.add(nose);
 
-      // Eyes
-      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.055, 8, 8), darkMat);
+      const eyeL = new THREE.Mesh(
+        new THREE.SphereGeometry(0.055, 8, 8),
+        darkMat
+      );
       eyeL.position.set(0.42, 1.44, 0.18);
       const eyeR = eyeL.clone();
       eyeR.position.z = -0.18;
       group.add(eyeL, eyeR);
 
-      // Tall Ears
       const earGeo = new THREE.BoxGeometry(0.14, 0.46, 0.12);
       const earL = new THREE.Mesh(earGeo, furMat);
       earL.position.set(0.08, 1.72, 0.15);
@@ -372,7 +512,6 @@ export default function Kangaroo3DGame({
       earR.rotation.z = 0.18;
       group.add(earL, earR);
 
-      // Muscular Hind Legs + Feet
       const thighGeo = new THREE.BoxGeometry(0.34, 0.48, 0.22);
       const legL = new THREE.Mesh(thighGeo, furMat);
       legL.position.set(-0.04, 0.36, 0.24);
@@ -386,7 +525,6 @@ export default function Kangaroo3DGame({
       footR.position.set(0.14, 0.08, -0.24);
       group.add(legL, legR, footL, footR);
 
-      // Front Paws
       const armGeo = new THREE.BoxGeometry(0.28, 0.14, 0.14);
       const armL = new THREE.Mesh(armGeo, furMat);
       armL.position.set(0.38, 0.94, 0.22);
@@ -395,8 +533,10 @@ export default function Kangaroo3DGame({
       armR.position.z = -0.22;
       group.add(armL, armR);
 
-      // Long Counter-Balancing Tail
-      const tail = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.18, 0.18), furMat);
+      const tail = new THREE.Mesh(
+        new THREE.BoxGeometry(0.88, 0.18, 0.18),
+        furMat
+      );
       tail.position.set(-0.62, 0.44, 0);
       tail.rotation.z = 0.28;
       group.add(tail);
@@ -416,9 +556,6 @@ export default function Kangaroo3DGame({
     }
 
     if (renderer) {
-      // ======================================================================
-      // THREE.JS WEBGL 3D SCENE
-      // ======================================================================
       const scene = new THREE.Scene();
       scene.background = new THREE.Color(0x0c4a6e);
       scene.fog = new THREE.FogExp2(0x0c4a6e, 0.032);
@@ -434,7 +571,6 @@ export default function Kangaroo3DGame({
       dirLight.position.set(8, 14, 10);
       scene.add(dirLight);
 
-      // Animated 3D Water Plane
       const waterGeo = new THREE.PlaneGeometry(180, 50, 64, 24);
       const waterMat = new THREE.MeshStandardMaterial({
         color: 0x0284c7,
@@ -447,7 +583,6 @@ export default function Kangaroo3DGame({
       waterMesh.position.set(20, -0.35, 0);
       scene.add(waterMesh);
 
-      // 3D Hexagonal Stepping Pillars Pool
       const stoneMat = new THREE.MeshStandardMaterial({
         color: 0x64748b,
         roughness: 0.8,
@@ -478,7 +613,6 @@ export default function Kangaroo3DGame({
         pillars.push({ group: pGroup, logicalIndex: i });
       }
 
-      // 3D Kangaroo + Ground Shadow + Landing Ring Ripple
       const kangaroo = buildLowPolyKangaroo();
       kangaroo.position.set(0, 0.8, 0);
       scene.add(kangaroo);
@@ -509,14 +643,21 @@ export default function Kangaroo3DGame({
       rippleMesh.position.set(0, 0.82, 0);
       scene.add(rippleMesh);
 
-      // 3D Splash Droplets
       const dropletMat = new THREE.MeshStandardMaterial({
         color: 0xe0f2fe,
         roughness: 0.2,
       });
-      const droplets: Array<{ mesh: THREE.Mesh; vx: number; vy: number; vz: number }> = [];
+      const droplets: Array<{
+        mesh: THREE.Mesh;
+        vx: number;
+        vy: number;
+        vz: number;
+      }> = [];
       for (let i = 0; i < 14; i++) {
-        const drop = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 8), dropletMat);
+        const drop = new THREE.Mesh(
+          new THREE.SphereGeometry(0.11, 8, 8),
+          dropletMat
+        );
         drop.visible = false;
         scene.add(drop);
         const angle = (i / 14) * Math.PI * 2;
@@ -536,10 +677,8 @@ export default function Kangaroo3DGame({
         const dt = Math.min(0.05, (now - lastTime) / 1000);
         lastTime = now;
         const elapsed = now * 0.001;
-
         const st = animRef.current;
 
-        // 1. Animate 3D Water Waves
         const posAttr = waterGeo.attributes.position as THREE.BufferAttribute;
         for (let i = 0; i < posAttr.count; i++) {
           const vx = posAttr.getX(i);
@@ -552,7 +691,6 @@ export default function Kangaroo3DGame({
         posAttr.needsUpdate = true;
         waterMesh.position.x = st.cameraX + 12;
 
-        // 2. Recycle Pillars Ahead of Camera
         const minLogicalNeeded = Math.max(0, st.targetPillarIndex - 2);
         for (const p of pillars) {
           if (p.logicalIndex < minLogicalNeeded) {
@@ -560,7 +698,8 @@ export default function Kangaroo3DGame({
             p.logicalIndex = maxIdx + 1;
           }
           const isCurrentPillar = p.logicalIndex === st.targetPillarIndex;
-          const floatOffset = Math.sin(elapsed * 2.2 + p.logicalIndex * 0.9) * 0.05;
+          const floatOffset =
+            Math.sin(elapsed * 2.2 + p.logicalIndex * 0.9) * 0.05;
           const sinkOffset =
             isCurrentPillar && st.state === "idle"
               ? -st.sinkFactor
@@ -574,7 +713,6 @@ export default function Kangaroo3DGame({
           );
         }
 
-        // 3. Kangaroo Parabolic Jump / Idle Breathing / Splash
         if (st.state === "jumping") {
           st.progress = Math.min(1, st.progress + dt * 2.5);
           const t = st.progress;
@@ -582,7 +720,6 @@ export default function Kangaroo3DGame({
           const endX = st.targetPillarIndex * PILLAR_SPACING;
           const curX = startX + (endX - startX) * t;
           const peakH = st.jumpSpan > 1 ? 2.8 : 1.95;
-          // Parabolic trajectory: y = 4 * h * t * (1 - t)
           const arcY = 4 * peakH * t * (1 - t);
 
           kangaroo.position.set(curX, 0.8 + arcY, 0);
@@ -608,8 +745,8 @@ export default function Kangaroo3DGame({
         } else if (st.state === "splashing") {
           st.progress = Math.min(1, st.progress + dt * 2.1);
           const curX = st.targetPillarIndex * PILLAR_SPACING;
-          kangaroo.position.set(curX, 0.8 - st.progress * 1.65, 0);
-          kangaroo.rotation.z = st.progress * 0.65;
+          kangaroo.position.set(curX, 0.8 - st.progress * 1.4, 0);
+          kangaroo.rotation.z = st.progress * 0.55;
           shadowMesh.visible = false;
 
           for (const d of droplets) {
@@ -633,7 +770,6 @@ export default function Kangaroo3DGame({
           for (const d of droplets) d.mesh.visible = false;
         }
 
-        // 4. Landing Ring Ripple
         if (rippleTimer > 0) {
           rippleTimer = Math.max(0, rippleTimer - dt * 2.2);
           const rScale = 1 + (1 - rippleTimer) * 0.85;
@@ -643,7 +779,6 @@ export default function Kangaroo3DGame({
           rippleMat.opacity = 0;
         }
 
-        // 5. Smooth Camera Tracking + Shake
         const desiredCamX = kangaroo.position.x + 1.8;
         st.cameraX += (desiredCamX - st.cameraX) * Math.min(1, dt * 8);
         if (st.shakeIntensity > 0) {
@@ -663,7 +798,7 @@ export default function Kangaroo3DGame({
       const handleResize = () => {
         if (!container || !renderer) return;
         const w = container.clientWidth || 390;
-        const h = container.clientHeight || 260;
+        const h = container.clientHeight || 240;
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
         renderer.setSize(w, h);
@@ -677,9 +812,7 @@ export default function Kangaroo3DGame({
       };
     }
 
-    // ========================================================================
-    // HARDWARE-ACCELERATED 2D/3D CANVAS FALLBACK (IF HEADLESS / NO WEBGL)
-    // ========================================================================
+    // Hardware-accelerated Canvas Fallback
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
@@ -715,7 +848,6 @@ export default function Kangaroo3DGame({
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, w, h);
 
-      // Draw 3D isometric hexagonal pillars
       const basePillarX = w * 0.28;
       const stepPx = 110;
       for (let i = 0; i < 4; i++) {
@@ -729,7 +861,6 @@ export default function Kangaroo3DGame({
         ctx.fill();
       }
 
-      // Draw 3D Kangaroo silhouette on parabolic curve
       const t = st.state === "jumping" ? st.progress : 0;
       const kx = basePillarX + t * stepPx;
       const ky =
@@ -757,6 +888,8 @@ export default function Kangaroo3DGame({
     setGameOver(false);
     setSelectedOptionIdx(null);
     setAnswerFeedback(null);
+    setPausedMistakeBreakdown(null);
+    setAutoSaveToast(null);
     setMissedItems([]);
     setTimeLeftMs(QUESTION_DURATION_MS);
     setRoundSeed((s) => s + 1);
@@ -795,20 +928,17 @@ export default function Kangaroo3DGame({
       {/* ==================================================================== */}
       {/* TOP 55% OF SCREEN: 3D RIVER & KANGAROO VIEWPORT                      */}
       {/* ==================================================================== */}
-      <div className="relative h-[42vh] min-h-[240px] max-h-[340px] w-full bg-sky-950 overflow-hidden select-none">
+      <div className="relative h-[38vh] min-h-[215px] max-h-[310px] w-full bg-sky-950 overflow-hidden select-none">
         <div ref={mountRef} className="w-full h-full" />
 
         {/* Top HUD Bar */}
         <div className="absolute top-3 inset-x-3 flex items-center justify-between gap-2 pointer-events-none">
-          {/* Lives & Hops */}
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950/75 backdrop-blur-xs border border-white/10">
             {[0, 1, 2].map((i) => (
               <Heart
                 key={i}
                 className={`w-4 h-4 transition ${
-                  i < lives
-                    ? "text-rose-500 fill-rose-500"
-                    : "text-slate-600"
+                  i < lives ? "text-rose-500 fill-rose-500" : "text-slate-600"
                 }`}
               />
             ))}
@@ -817,7 +947,6 @@ export default function Kangaroo3DGame({
             </span>
           </div>
 
-          {/* Score & Streak */}
           <div className="flex items-center gap-2 pointer-events-auto">
             <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-950/75 backdrop-blur-xs border border-white/10 text-xs font-bold text-amber-400">
               <Zap className="w-3.5 h-3.5" />
@@ -851,6 +980,8 @@ export default function Kangaroo3DGame({
               onClick={() => {
                 setCategory(cat.id);
                 setQIndex(0);
+                setPausedMistakeBreakdown(null);
+                setSelectedOptionIdx(null);
               }}
               className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap transition ${
                 category === cat.id
@@ -875,7 +1006,9 @@ export default function Kangaroo3DGame({
               }`}
             >
               <div>{p.text}</div>
-              <div className="text-[10px] font-medium opacity-85">{p.subtext}</div>
+              <div className="text-[10px] font-medium opacity-85">
+                {p.subtext}
+              </div>
             </div>
           ))}
         </div>
@@ -885,7 +1018,9 @@ export default function Kangaroo3DGame({
       <div className="h-1.5 w-full bg-slate-800 overflow-hidden">
         <div
           className={`h-full transition-all duration-100 ${
-            timePercent > 50
+            pausedMistakeBreakdown
+              ? "bg-rose-500"
+              : timePercent > 50
               ? "bg-emerald-500"
               : timePercent > 25
               ? "bg-amber-500"
@@ -896,7 +1031,7 @@ export default function Kangaroo3DGame({
       </div>
 
       {/* ==================================================================== */}
-      {/* BOTTOM 45% OF SCREEN: QUESTION CARD & 2x2 THUMB-FRIENDLY BUTTONS     */}
+      {/* BOTTOM AREA: QUESTION CARD, 2x2 BUTTONS & DEEP MISTAKE BREAKDOWN     */}
       {/* ==================================================================== */}
       {!gameOver && currentQuestion ? (
         <div className="p-4 sm:p-5 bg-white dark:bg-slate-900 space-y-3.5">
@@ -906,9 +1041,13 @@ export default function Kangaroo3DGame({
               <span>
                 Câu {qIndex + 1} • {currentQuestion.category}
               </span>
-              <span>{(timeLeftMs / 1000).toFixed(1)}s</span>
+              <span>
+                {pausedMistakeBreakdown
+                  ? "Đã tạm dừng để giải thích"
+                  : `${(timeLeftMs / 1000).toFixed(1)}s`}
+              </span>
             </div>
-            <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug min-h-[2.75rem]">
+            <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-snug min-h-[2.5rem]">
               {currentQuestion.stem}
             </p>
           </div>
@@ -935,9 +1074,12 @@ export default function Kangaroo3DGame({
                 <button
                   key={idx}
                   type="button"
-                  disabled={selectedOptionIdx !== null}
+                  disabled={
+                    selectedOptionIdx !== null ||
+                    pausedMistakeBreakdown !== null
+                  }
                   onClick={() => handleSelectAnswer(idx)}
-                  className={`min-h-[58px] p-3 rounded-xl border-2 text-left flex items-center gap-2.5 transition transform active:scale-95 ${btnStyle}`}
+                  className={`min-h-[54px] p-3 rounded-xl border-2 text-left flex items-center gap-2.5 transition transform active:scale-95 ${btnStyle}`}
                 >
                   <span className="w-7 h-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-bold shrink-0">
                     {LETTERS[idx]}
@@ -950,22 +1092,109 @@ export default function Kangaroo3DGame({
             })}
           </div>
 
-          {/* Instant Short Explanation Strip */}
-          {answerFeedback && (
-            <div
-              className={`p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 ${
-                answerFeedback === "correct"
-                  ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200"
-                  : "bg-rose-50 dark:bg-rose-950/50 text-rose-800 dark:text-rose-200"
-              }`}
-            >
-              {answerFeedback === "correct" ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              ) : (
-                <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
-              )}
-              <span className="line-clamp-2">{currentQuestion.shortTip}</span>
+          {/* Auto-Save Confirmation Toast */}
+          {autoSaveToast && (
+            <div className="px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/70 text-xs font-semibold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span>{autoSaveToast}</span>
             </div>
+          )}
+
+          {/* PAUSED 4-LAYER DEEP LINGUISTIC BREAKDOWN ON MISTAKE */}
+          {pausedMistakeBreakdown ? (
+            <div className="rounded-2xl border-2 border-rose-200 dark:border-rose-900/70 bg-rose-50/40 dark:bg-slate-800/90 p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-0.5">
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                    Giải Thích Ngôn Ngữ Chuyên Sâu
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                      Đáp án {currentQuestion.correctLetter}:{" "}
+                      {pausedMistakeBreakdown.targetExpression}
+                    </span>
+                    {settings.showIpaAndRegister && (
+                      <>
+                        <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400">
+                          {pausedMistakeBreakdown.ipa}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-700 text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+                          {pausedMistakeBreakdown.register}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    speakEnglishText(pausedMistakeBreakdown.targetExpression)
+                  }
+                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-indigo-600 shrink-0"
+                  title="Nghe phát âm"
+                >
+                  <Volume2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              {settings.explanationDepth === "deep" ? (
+                <div className="space-y-2 text-xs leading-relaxed">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-700">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>1. Bản chất & Gốc từ (Etymology & Nuance)</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {pausedMistakeBreakdown.etymologyAndNuance}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-700">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
+                      <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>2. Cấu trúc Kết hợp từ (Collocation & Syntax)</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300 font-medium">
+                      {pausedMistakeBreakdown.collocationAndSyntax}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-700">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                      <span>3. Phân tích Bẫy (Tại sao phương án khác sai)</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {pausedMistakeBreakdown.trapAnalysis}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-700 dark:text-slate-300">
+                  {pausedMistakeBreakdown.etymologyAndNuance}
+                </p>
+              )}
+
+              <button
+                type="button"
+                onClick={handleContinueAfterMistake}
+                className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white text-xs sm:text-sm font-semibold flex items-center justify-center gap-2 transition"
+              >
+                <span>
+                  {lives <= 0
+                    ? "Đã hiểu — Xem tổng kết lượt nhảy"
+                    : "Đã hiểu — Nhảy tiếp"}
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            answerFeedback === "correct" && (
+              <div className="p-2.5 rounded-xl text-xs font-medium flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span className="line-clamp-2">{currentQuestion.shortTip}</span>
+              </div>
+            )
           )}
         </div>
       ) : (
@@ -977,7 +1206,8 @@ export default function Kangaroo3DGame({
                 Hoàn thành lượt nhảy
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Tổng điểm: {score} XP • Chuỗi cao nhất: {bestStreak}x • {hopsCount} bước nhảy
+                Tổng điểm: {score} XP • Chuỗi cao nhất: {bestStreak}x •{" "}
+                {hopsCount} bước nhảy
               </p>
             </div>
             <button
@@ -993,7 +1223,7 @@ export default function Kangaroo3DGame({
           {missedItems.length > 0 && (
             <div className="space-y-2 max-h-56 overflow-y-auto">
               <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Các câu cần lưu ý ({missedItems.length})
+                Các từ làm sai đã tự động lưu vào Sổ Từ Sai ({missedItems.length})
               </p>
               {missedItems.map((item) => (
                 <div
@@ -1016,7 +1246,7 @@ export default function Kangaroo3DGame({
                       className="px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[11px] font-semibold flex items-center gap-1 shrink-0"
                     >
                       <BookmarkPlus className="w-3.5 h-3.5" />
-                      <span>{savedIds[item.id] ? "Đã lưu" : "Lưu từ"}</span>
+                      <span>{savedIds[item.id] ? "Đã lưu" : "Lưu thêm"}</span>
                     </button>
                   )}
                 </div>

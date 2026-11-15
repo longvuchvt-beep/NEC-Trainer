@@ -13,10 +13,13 @@ import {
   Zap,
   CheckCircle2,
   RotateCcw,
-  LogIn
+  LogIn,
+  Plus,
+  Settings
 } from 'lucide-react';
 
 import MobileExamRunner from '../components/exam/MobileExamRunner';
+import AddExamSourceModal from '../components/exam/AddExamSourceModal';
 import MobileFlashcardsView from '../components/flashcards/MobileFlashcardsView';
 import AuthModal from '../components/auth/AuthModal';
 import ProfileView from '../components/auth/ProfileView';
@@ -51,8 +54,10 @@ const COMPETITION_FILTERS = [
   { id: 'ALL', label: 'Tất cả' },
   { id: 'HSGQG', label: 'HSGQG' },
   { id: 'DHBB', label: 'DHBB' },
+  { id: 'Trại hè Hùng Vương', label: 'Trại hè Hùng Vương' },
   { id: 'Olympic 30/4', label: 'Olympic 30/4' },
-  { id: 'Trại hè Hùng Vương', label: 'Hùng Vương' }
+  { id: 'Đội tuyển', label: 'Đội tuyển' },
+  { id: 'Học thuật Quốc tế', label: 'Học thuật Quốc tế' }
 ];
 
 const COMPETITION_BADGE_STYLES = {
@@ -63,7 +68,9 @@ const COMPETITION_BADGE_STYLES = {
   'Trại hè Hùng Vương':
     'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/70',
   'Đội tuyển':
-    'bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/70'
+    'bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/70',
+  'Học thuật Quốc tế':
+    'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-800 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/70'
 };
 
 const FONT_SIZE_CLASS_MAP = {
@@ -89,6 +96,7 @@ export default function App() {
 
   // 2. 4 Core Navigation Tabs: 'exams' | 'flashcards' | 'game3d' | 'profile'
   const [activeTab, setActiveTab] = useState('exams');
+  const [profileSubTab, setProfileSubTab] = useState('history');
 
   // 3. Normalized Data State
   const [rawExams, setRawExams] = useState(() => getInitialBundledExams());
@@ -96,12 +104,16 @@ export default function App() {
   const [stats, setStats] = useState(() => getInitialBundledStats());
   const [sessionRefreshTick, setSessionRefreshTick] = useState(0);
 
-  const safeExams = useMemo(() => normalizeExamList(rawExams), [rawExams]);
+  const safeExams = useMemo(
+    () => normalizeExamList(rawExams),
+    [rawExams, sessionRefreshTick]
+  );
 
-  // 4. User Auth State
+  // 4. User Auth & Source Importer Modals
   const [user, setUser] = useState(() => getCurrentUser());
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('register');
+  const [addSourceModalOpen, setAddSourceModalOpen] = useState(false);
 
   // 5. Filters & Active Exam Runner State
   const [selectedCompetition, setSelectedCompetition] = useState('ALL');
@@ -176,8 +188,11 @@ export default function App() {
     }
   };
 
-  const handleSwitchTab = (tabId) => {
+  const handleSwitchTab = (tabId, subTab = 'history') => {
     setActiveTab(tabId);
+    if (tabId === 'profile') {
+      setProfileSubTab(subTab);
+    }
     setActiveExamId(null);
     if (typeof window !== 'undefined') {
       const targetUrl = tabId === 'profile' ? '/profile' : '/';
@@ -204,9 +219,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEntry)
       });
-    } catch {
-      // handled by localStorage interceptor
-    }
+    } catch {}
   };
 
   const filteredExams = useMemo(() => {
@@ -245,7 +258,7 @@ export default function App() {
         className={`min-h-screen flex flex-col bg-[#FAF7F2] dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans ${fontScaleClass}`}
       >
         {/* ================================================================ */}
-        {/* CLEAN MINIMALIST TOP HEADER (LOGO + STREAK/AVATAR ONLY)          */}
+        {/* CLEAN MINIMALIST TOP HEADER                                      */}
         {/* ================================================================ */}
         <header className="sticky top-0 z-30 h-14 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200/80 dark:border-slate-800 px-4">
           <div className="max-w-5xl mx-auto h-full flex items-center justify-between gap-3">
@@ -286,12 +299,21 @@ export default function App() {
               })}
             </nav>
 
-            {/* Right: XP/Streak + User Avatar */}
+            {/* Right: XP + Settings Quick Button + User Avatar */}
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-200/70 dark:border-amber-800/60 text-xs font-bold text-amber-700 dark:text-amber-300">
                 <Zap className="w-3.5 h-3.5" />
                 <span>{user.xp || 250} XP</span>
               </div>
+
+              <button
+                type="button"
+                onClick={() => handleSwitchTab('profile', 'settings')}
+                className="w-8 h-8 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 transition"
+                title="Cài đặt"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
 
               {user.isGuest ? (
                 <button
@@ -308,7 +330,7 @@ export default function App() {
               ) : (
                 <button
                   type="button"
-                  onClick={() => handleSwitchTab('profile')}
+                  onClick={() => handleSwitchTab('profile', 'history')}
                   className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
                 >
                   <div
@@ -347,17 +369,28 @@ export default function App() {
                 />
               ) : (
                 <div className="space-y-4">
-                  {/* Search & Competition Filter Strip */}
+                  {/* Search, "+ Thêm nguồn đề" & 6 Competition Category Filters */}
                   <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 shadow-xs space-y-3">
-                    <div className="relative">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Tìm đề thi, trường chuyên, tỉnh thành..."
-                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                      />
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          placeholder="Tìm đề thi, trường chuyên, tỉnh thành, CPE, Economist..."
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setAddSourceModalOpen(true)}
+                        className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Thêm nguồn đề</span>
+                      </button>
                     </div>
 
                     <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -507,7 +540,7 @@ export default function App() {
             </>
           )}
 
-          {/* TAB 2: TỪ VỰNG (FLASHCARDS) */}
+          {/* TAB 2: TỪ VỰNG (FLASHCARDS + MISTAKE VAULT) */}
           {activeTab === 'flashcards' && (
             <MobileFlashcardsView
               vocabList={vocabList}
@@ -515,7 +548,7 @@ export default function App() {
             />
           )}
 
-          {/* TAB 3: GAME 3D (3D KANGAROO REFLEX JUMPER) */}
+          {/* TAB 3: GAME 3D (3D KANGAROO REFLEX JUMPER WITH PAUSE-ON-MISTAKE BREAKDOWN) */}
           {activeTab === 'game3d' && (
             <Suspense
               fallback={
@@ -531,12 +564,13 @@ export default function App() {
             </Suspense>
           )}
 
-          {/* TAB 4: TÀI KHOẢN (PROFILE / AUTH / HISTORY / SAVED) */}
+          {/* TAB 4: TÀI KHOẢN & CÀI ĐẶT */}
           {activeTab === 'profile' && (
             <ProfileView
               user={user}
               exams={safeExams}
               serverSubmissions={stats?.recentSubmissions || []}
+              initialSubTab={profileSubTab}
               theme={theme}
               onChangeTheme={setTheme}
               fontScale={fontScale}
@@ -583,7 +617,7 @@ export default function App() {
         </nav>
 
         {/* ================================================================ */}
-        {/* AUTH MODAL (SIGN UP / LOG IN / GUEST UPGRADE)                    */}
+        {/* AUTH MODAL                                                       */}
         {/* ================================================================ */}
         <AuthModal
           isOpen={authModalOpen}
@@ -593,6 +627,19 @@ export default function App() {
           onAuthSuccess={(loggedInUser) => {
             setUser(loggedInUser);
             setSessionRefreshTick((t) => t + 1);
+          }}
+        />
+
+        {/* ================================================================ */}
+        {/* ADD / IMPORT EXAM SOURCE MODAL                                   */}
+        {/* ================================================================ */}
+        <AddExamSourceModal
+          isOpen={addSourceModalOpen}
+          onClose={() => setAddSourceModalOpen(false)}
+          onExamCreated={(createdExam) => {
+            setRawExams((prev) => [createdExam, ...prev]);
+            setSessionRefreshTick((t) => t + 1);
+            handleOpenExam(createdExam.id, 'practice');
           }}
         />
       </div>

@@ -1,24 +1,20 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
-  User,
   LogIn,
   UserPlus,
   LogOut,
-  CheckCircle2,
   Bookmark,
   History,
-  Award,
   GraduationCap,
   ChevronRight,
   Trash2,
   Eye,
   X,
-  Download,
-  Sun,
-  Leaf,
-  Moon,
+  AlertCircle,
+  Settings,
+  Volume2,
 } from "lucide-react";
 import {
   UserProfile,
@@ -31,14 +27,21 @@ import {
   getLocalSubmissions,
   getBookmarksMap,
   toggleBookmarkQuestion,
-  exportFullBackupJson,
 } from "../../lib/utilities/core-utilities-store";
+import {
+  getMistakeVaultItems,
+  removeMistakeItem,
+  speakEnglishText,
+  MistakeVaultItem,
+} from "../../lib/linguistics/deep-linguistic-engine";
+import ComprehensiveSettingsHub from "../utilities/ComprehensiveSettingsHub";
 import { SafeExam } from "../../lib/safe-data";
 
 interface ProfileViewProps {
   user: UserProfile;
   exams: SafeExam[];
   serverSubmissions?: any[];
+  initialSubTab?: "history" | "mistakes" | "saved" | "settings";
   theme: string;
   onChangeTheme: (next: string) => void;
   fontScale: string;
@@ -53,6 +56,7 @@ export default function ProfileView({
   user,
   exams,
   serverSubmissions = [],
+  initialSubTab = "history",
   theme,
   onChangeTheme,
   fontScale,
@@ -62,16 +66,36 @@ export default function ProfileView({
   onUserUpdated,
   onOpenExam,
 }: ProfileViewProps) {
-  const [subTab, setSubTab] = useState<"history" | "saved" | "settings">("history");
+  const [subTab, setSubTab] = useState<
+    "history" | "mistakes" | "saved" | "settings"
+  >(initialSubTab);
   const [reviewAttempt, setReviewAttempt] = useState<any | null>(null);
   const [bookmarksMap, setBookmarksMap] = useState(() => getBookmarksMap());
+  const [mistakesList, setMistakesList] = useState<MistakeVaultItem[]>(() =>
+    getMistakeVaultItems()
+  );
   const [editingTarget, setEditingTarget] = useState(false);
+
+  useEffect(() => {
+    setSubTab(initialSubTab);
+  }, [initialSubTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const syncMistakes = () => setMistakesList(getMistakeVaultItems());
+    window.addEventListener("veng-mistakes-updated", syncMistakes);
+    return () =>
+      window.removeEventListener("veng-mistakes-updated", syncMistakes);
+  }, []);
 
   const palette = AVATAR_PALETTES[user.avatarId] || AVATAR_PALETTES.indigo;
 
   const attempts = useMemo(() => {
     const localSubs = getLocalSubmissions();
-    const combined = [...localSubs, ...(Array.isArray(serverSubmissions) ? serverSubmissions : [])];
+    const combined = [
+      ...localSubs,
+      ...(Array.isArray(serverSubmissions) ? serverSubmissions : []),
+    ];
     const seen = new Set<string>();
     const unique: any[] = [];
     for (const item of combined) {
@@ -128,14 +152,18 @@ export default function ProfileView({
     setEditingTarget(false);
   };
 
-  const handleTargetExamChange = (newExam: "HSGQG" | "DHBB" | "Olympic 30/4") => {
+  const handleTargetExamChange = (
+    newExam: "HSGQG" | "DHBB" | "Olympic 30/4"
+  ) => {
     const updated = updateCurrentUserProfile({ targetExam: newExam });
     onUserUpdated(updated);
   };
 
   const reviewExamObj = useMemo(() => {
     if (!reviewAttempt) return null;
-    return exams.find((e) => e.id === reviewAttempt.exam_id) || exams[0] || null;
+    return (
+      exams.find((e) => e.id === reviewAttempt.exam_id) || exams[0] || null
+    );
   }, [reviewAttempt, exams]);
 
   return (
@@ -250,26 +278,34 @@ export default function ProfileView({
         )}
       </div>
 
-      {/* 3 Core Metrics Grid */}
-      <div className="grid grid-cols-3 gap-2.5">
-        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 text-center">
-          <div className="text-xl font-bold text-slate-900 dark:text-white">
+      {/* 4 Core Metrics Grid */}
+      <div className="grid grid-cols-4 gap-2">
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3 text-center">
+          <div className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
             {summaryStats.completedCount}
           </div>
           <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
             Đề đã làm
           </div>
         </div>
-        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 text-center">
-          <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3 text-center">
+          <div className="text-lg sm:text-xl font-bold text-emerald-600 dark:text-emerald-400">
             {summaryStats.accuracyPercent}%
           </div>
           <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-            Độ chính xác
+            Chính xác
           </div>
         </div>
-        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 text-center">
-          <div className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3 text-center">
+          <div className="text-lg sm:text-xl font-bold text-rose-600 dark:text-rose-400">
+            {mistakesList.length}
+          </div>
+          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
+            Sổ từ sai
+          </div>
+        </div>
+        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3 text-center">
+          <div className="text-lg sm:text-xl font-bold text-indigo-600 dark:text-indigo-400">
             {savedQuestions.length}
           </div>
           <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5">
@@ -278,43 +314,58 @@ export default function ProfileView({
         </div>
       </div>
 
-      {/* Sub-navigation */}
-      <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800/80">
+      {/* Sub-navigation: Lịch sử | Sổ từ sai | Đã lưu | Cài đặt */}
+      <div className="grid grid-cols-4 gap-1 p-1 rounded-xl bg-slate-200/70 dark:bg-slate-800/80">
         <button
           type="button"
           onClick={() => setSubTab("history")}
-          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition ${
+          className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition ${
             subTab === "history"
               ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
               : "text-slate-600 dark:text-slate-400"
           }`}
         >
           <History className="w-3.5 h-3.5" />
-          <span>Lịch sử ({attempts.length})</span>
+          <span>Lịch sử</span>
         </button>
+
+        <button
+          type="button"
+          onClick={() => setSubTab("mistakes")}
+          className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition ${
+            subTab === "mistakes"
+              ? "bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 shadow-xs"
+              : "text-slate-600 dark:text-slate-400"
+          }`}
+        >
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>Sổ từ sai ({mistakesList.length})</span>
+        </button>
+
         <button
           type="button"
           onClick={() => setSubTab("saved")}
-          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition ${
+          className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition ${
             subTab === "saved"
               ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
               : "text-slate-600 dark:text-slate-400"
           }`}
         >
           <Bookmark className="w-3.5 h-3.5" />
-          <span>Đã lưu ({savedQuestions.length})</span>
+          <span>Đã lưu</span>
         </button>
+
         <button
           type="button"
           onClick={() => setSubTab("settings")}
-          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition ${
+          className={`flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-semibold transition ${
             subTab === "settings"
-              ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs"
+              ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs"
               : "text-slate-600 dark:text-slate-400"
           }`}
         >
-          <User className="w-3.5 h-3.5" />
-          <span>Tùy chỉnh</span>
+          <Settings className="w-3.5 h-3.5" />
+          <span>Cài đặt</span>
         </button>
       </div>
 
@@ -334,7 +385,8 @@ export default function ProfileView({
           ) : (
             attempts.map((att, index) => {
               const matchedExam = exams.find((e) => e.id === att.exam_id);
-              const title = att.exam_title || matchedExam?.title || "Đề thi Chuyên Anh";
+              const title =
+                att.exam_title || matchedExam?.title || "Đề thi Chuyên Anh";
               const badge = matchedExam?.competition || "HSGQG";
               const score = Number(att.score || 0).toFixed(1);
               const dateStr = att.created_at
@@ -351,7 +403,9 @@ export default function ProfileView({
                       <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-300">
                         {badge}
                       </span>
-                      <span className="text-[11px] text-slate-400">{dateStr}</span>
+                      <span className="text-[11px] text-slate-400">
+                        {dateStr}
+                      </span>
                     </div>
                     <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 truncate">
                       {title}
@@ -376,7 +430,93 @@ export default function ProfileView({
         </div>
       )}
 
-      {/* Tab 2: Saved Questions */}
+      {/* Tab 2: Sổ Từ Sai (Auto-Saved Mistakes with 4-Layer Deep Breakdown) */}
+      {subTab === "mistakes" && (
+        <div className="space-y-2.5">
+          {mistakesList.length === 0 ? (
+            <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-8 text-center space-y-2">
+              <AlertCircle className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
+              <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Chưa có từ hoặc câu làm sai nào
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Mọi câu chọn sai trong Game 3D hoặc khi Làm đề sẽ được tự động lưu vào đây kèm giải thích 4 tầng.
+              </p>
+            </div>
+          ) : (
+            mistakesList.map((m) => (
+              <div
+                key={m.id}
+                className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 space-y-2.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+                      {m.sourceTag} • Đã chọn: {m.userWrongAnswer} (Đúng: {m.correctAnswer})
+                    </span>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      <span className="text-sm font-bold text-slate-900 dark:text-white">
+                        {m.word}
+                      </span>
+                      <span className="text-xs font-mono text-indigo-600 dark:text-indigo-400">
+                        {m.ipa}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => speakEnglishText(m.word)}
+                        className="text-slate-400 hover:text-indigo-600"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMistakesList(removeMistakeItem(m.id))}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600"
+                    title="Xóa"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <p className="text-xs sm:text-sm font-medium text-slate-800 dark:text-slate-200">
+                  {m.stem}
+                </p>
+
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/70 space-y-1.5 text-xs">
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      1. Bản chất & Gốc từ:{" "}
+                    </span>
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {m.etymologyAndNuance}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      2. Kết hợp từ:{" "}
+                    </span>
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {m.collocationAndSyntax}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      3. Phân tích Bẫy:{" "}
+                    </span>
+                    <span className="text-slate-600 dark:text-slate-300">
+                      {m.trapAnalysis}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Saved Questions */}
       {subTab === "saved" && (
         <div className="space-y-2.5">
           {savedQuestions.length === 0 ? (
@@ -386,7 +526,7 @@ export default function ProfileView({
                 Chưa có câu hỏi nào được lưu
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Bấm nút Lưu câu hỏi khi đang làm đề để ôn tập lại tại đây.
+                Bấm nút Lưu câu khi đang làm đề để ôn tập lại tại đây.
               </p>
             </div>
           ) : (
@@ -397,7 +537,8 @@ export default function ProfileView({
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 truncate">
-                    {item.examTitle || "Đề thi Chuyên Anh"} • Câu {item.questionNumber}
+                    {item.examTitle || "Đề thi Chuyên Anh"} • Câu{" "}
+                    {item.questionNumber}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {item.examId && (
@@ -437,85 +578,14 @@ export default function ProfileView({
         </div>
       )}
 
-      {/* Tab 3: Display & Backup Settings */}
+      {/* Tab 4: Comprehensive 4-Section Settings Control Center */}
       {subTab === "settings" && (
-        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-              Giao diện đọc bài
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: "warm-paper", label: "Giấy ấm", icon: Sun },
-                { id: "forest-matcha", label: "Xanh dịu", icon: Leaf },
-                { id: "midnight-slate", label: "Ban đêm", icon: Moon },
-              ].map((t) => {
-                const Icon = t.icon;
-                const active = theme === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => onChangeTheme(t.id)}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
-                      active
-                        ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300"
-                        : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
-                    }`}
-                  >
-                    <Icon className="w-3.5 h-3.5" />
-                    <span>{t.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-2">
-              Cỡ chữ hiển thị
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: "A", label: "Tiêu chuẩn (A)" },
-                { id: "A+", label: "Lớn (A+)" },
-                { id: "A++", label: "Rất lớn (A++)" },
-              ].map((fs) => (
-                <button
-                  key={fs.id}
-                  type="button"
-                  onClick={() => onChangeFontScale(fs.id)}
-                  className={`py-2 px-3 rounded-xl border text-xs font-semibold transition ${
-                    fontScale === fs.id
-                      ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300"
-                      : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
-                  }`}
-                >
-                  {fs.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                Sao lưu dữ liệu học tập
-              </p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Tải về toàn bộ lịch sử làm bài và câu hỏi đã lưu (.json)
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={exportFullBackupJson}
-              className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 transition"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Tải bản sao lưu</span>
-            </button>
-          </div>
-        </div>
+        <ComprehensiveSettingsHub
+          theme={theme}
+          onChangeTheme={onChangeTheme}
+          fontScale={fontScale}
+          onChangeFontScale={onChangeFontScale}
+        />
       )}
 
       {/* Attempt Review Modal ("Xem lại bài làm") */}
@@ -528,8 +598,10 @@ export default function ProfileView({
                   Xem lại bài làm
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {reviewAttempt.exam_title || reviewExamObj?.title || "Đề thi Chuyên Anh"} • Điểm:{" "}
-                  {Number(reviewAttempt.score || 0).toFixed(1)}/20.0
+                  {reviewAttempt.exam_title ||
+                    reviewExamObj?.title ||
+                    "Đề thi Chuyên Anh"}{" "}
+                  • Điểm: {Number(reviewAttempt.score || 0).toFixed(1)}/20.0
                 </p>
               </div>
               <button
@@ -544,7 +616,8 @@ export default function ProfileView({
             <div className="p-5 overflow-y-auto space-y-3">
               {(reviewExamObj?.questions || []).slice(0, 30).map((q, idx) => {
                 const userAnsMap =
-                  reviewAttempt.answers && typeof reviewAttempt.answers === "object"
+                  reviewAttempt.answers &&
+                  typeof reviewAttempt.answers === "object"
                     ? reviewAttempt.answers
                     : {};
                 const userAns = userAnsMap[q.id] || "Chưa chọn";
@@ -575,7 +648,8 @@ export default function ProfileView({
                       {q.prompt}
                     </p>
                     <p className="text-xs text-slate-600 dark:text-slate-400">
-                      {q.explanation}
+                      {q.linguisticBreakdown?.etymologyAndNuance ||
+                        q.explanation}
                     </p>
                   </div>
                 );

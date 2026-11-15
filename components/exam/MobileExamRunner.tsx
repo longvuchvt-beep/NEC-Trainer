@@ -14,6 +14,9 @@ import {
   Send,
   BookOpen,
   Award,
+  Volume2,
+  Layers,
+  AlertCircle,
 } from "lucide-react";
 import { SafeExam, SafeQuestion, normalizeExam } from "../../lib/safe-data";
 import {
@@ -25,6 +28,12 @@ import {
   toggleBookmarkQuestion,
 } from "../../lib/utilities/core-utilities-store";
 import { addUserXp } from "../../lib/auth/auth-store";
+import {
+  getFullSettings,
+  autoSaveMistakeItem,
+  speakEnglishText,
+  incrementDailyAnsweredCount,
+} from "../../lib/linguistics/deep-linguistic-engine";
 
 interface MobileExamRunnerProps {
   exam: any;
@@ -53,6 +62,15 @@ export default function MobileExamRunner({
     () => getExamSession(safeExam.id),
     [safeExam.id]
   );
+
+  const [settings, setSettings] = useState(() => getFullSettings());
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSettingsChange = () => setSettings(getFullSettings());
+    window.addEventListener("veng-settings-changed", onSettingsChange);
+    return () =>
+      window.removeEventListener("veng-settings-changed", onSettingsChange);
+  }, []);
 
   const [mode, setMode] = useState<"practice" | "test">(() => {
     if (existingSession?.studyMode === "test") return "test";
@@ -85,6 +103,7 @@ export default function MobileExamRunner({
   const [bookmarksMap, setBookmarksMap] = useState(() => getBookmarksMap());
   const [showGridDrawer, setShowGridDrawer] = useState(false);
   const [showPassage, setShowPassage] = useState(false);
+  const [autoSaveBanner, setAutoSaveBanner] = useState<string | null>(null);
   const [submittedResult, setSubmittedResult] = useState<{
     score20: number;
     correctCount: number;
@@ -140,16 +159,39 @@ export default function MobileExamRunner({
     if (!currentQuestion || submittedResult) return;
     const qId = currentQuestion.id;
 
-    // In practice mode, once checked, don't overwrite
     if (mode === "practice" && checkedMap[qId]) return;
 
     const nextAnswers = { ...answers, [qId]: optionId };
     setAnswers(nextAnswers);
+    incrementDailyAnsweredCount(1);
 
     if (mode === "practice") {
       setCheckedMap((prev) => ({ ...prev, [qId]: true }));
       if (optionId === currentQuestion.correctAnswer) {
         addUserXp(15);
+        setAutoSaveBanner(null);
+      } else {
+        const correctOpt =
+          currentQuestion.options.find(
+            (o) => o.id === currentQuestion.correctAnswer
+          ) || currentQuestion.options[0];
+        const res = autoSaveMistakeItem({
+          questionId: currentQuestion.id,
+          stem: currentQuestion.prompt,
+          options: currentQuestion.options,
+          userWrongAnswer: optionId,
+          correctAnswer: currentQuestion.correctAnswer,
+          correctText: correctOpt.text,
+          targetTerm: currentQuestion.linguisticBreakdown?.targetExpression,
+          category: currentQuestion.partTitle,
+          explanation: currentQuestion.explanation,
+          sourceTag: `${safeExam.competition} • ${safeExam.school}`,
+        });
+        if (res.saved) {
+          setAutoSaveBanner(
+            "Đã tự động lưu vào Sổ Từ Sai kèm giải thích chuyên sâu"
+          );
+        }
       }
     }
   };
@@ -177,6 +219,7 @@ export default function MobileExamRunner({
     setCheckedMap({});
     setCurrentIndex(0);
     setSubmittedResult(null);
+    setAutoSaveBanner(null);
     setTimeLeft((safeExam.durationMinutes || 90) * 60);
   };
 
@@ -186,6 +229,21 @@ export default function MobileExamRunner({
       const userAns = String(answers[q.id] || "").trim().toUpperCase();
       if (userAns && userAns === q.correctAnswer) {
         correctCount++;
+      } else if (userAns && userAns !== q.correctAnswer) {
+        const correctOpt =
+          q.options.find((o) => o.id === q.correctAnswer) || q.options[0];
+        autoSaveMistakeItem({
+          questionId: q.id,
+          stem: q.prompt,
+          options: q.options,
+          userWrongAnswer: userAns,
+          correctAnswer: q.correctAnswer,
+          correctText: correctOpt.text,
+          targetTerm: q.linguisticBreakdown?.targetExpression,
+          category: q.partTitle,
+          explanation: q.explanation,
+          sourceTag: `${safeExam.competition} • ${safeExam.school}`,
+        });
       }
     }
     const totalCount = Math.max(1, questions.length);
@@ -223,11 +281,13 @@ export default function MobileExamRunner({
   const selectedAns = currentQuestion ? answers[currentQuestion.id] : "";
   const isRevealed =
     Boolean(submittedResult) ||
-    (mode === "practice" && Boolean(currentQuestion && checkedMap[currentQuestion.id]));
+    (mode === "practice" &&
+      Boolean(currentQuestion && checkedMap[currentQuestion.id]));
 
   const progressPct = Math.round(
     (answeredCount / Math.max(1, questions.length)) * 100
   );
+  const breakdown = currentQuestion?.linguisticBreakdown;
 
   return (
     <div className="max-w-2xl mx-auto pb-16 space-y-3">
@@ -243,7 +303,6 @@ export default function MobileExamRunner({
             <span>Quay lại</span>
           </button>
 
-          {/* Mode Toggle: Làm bài vs Kiểm tra */}
           <div className="flex items-center gap-1 p-1 rounded-xl bg-slate-100 dark:bg-slate-800">
             <button
               type="button"
@@ -318,9 +377,11 @@ export default function MobileExamRunner({
                 Điểm bài làm: {submittedResult.score20} / 20.0
               </h3>
               <p className="text-xs text-emerald-800 dark:text-emerald-300">
-                Đúng {submittedResult.correctCount} / {submittedResult.totalCount} câu (
+                Đúng {submittedResult.correctCount} /{" "}
+                {submittedResult.totalCount} câu (
                 {Math.round(
-                  (submittedResult.correctCount / submittedResult.totalCount) * 100
+                  (submittedResult.correctCount / submittedResult.totalCount) *
+                    100
                 )}
                 %)
               </p>
@@ -339,7 +400,6 @@ export default function MobileExamRunner({
       {/* Active Question Card */}
       {currentQuestion && (
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4">
-          {/* Question Number, Part & Bookmark Button */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
@@ -380,19 +440,16 @@ export default function MobileExamRunner({
             </div>
           </div>
 
-          {/* Optional Reading Passage */}
           {showPassage && currentQuestion.passageText && (
             <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700 max-h-60 overflow-y-auto text-xs sm:text-sm leading-relaxed text-slate-800 dark:text-slate-200 font-serif whitespace-pre-line">
               {currentQuestion.passageText}
             </div>
           )}
 
-          {/* Question Prompt */}
           <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-relaxed">
             {currentQuestion.prompt}
           </p>
 
-          {/* 4 Answer Options */}
           <div className="space-y-2.5">
             {currentQuestion.options.map((opt) => {
               const isSelected = selectedAns === opt.id;
@@ -440,15 +497,85 @@ export default function MobileExamRunner({
             })}
           </div>
 
-          {/* Explanation Box when Revealed */}
-          {isRevealed && (
-            <div className="p-3.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700 space-y-1">
-              <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                Đáp án đúng: {currentQuestion.correctAnswer}
+          {autoSaveBanner && isRevealed && selectedAns !== currentQuestion.correctAnswer && (
+            <div className="px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/70 text-xs font-semibold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+              <span>{autoSaveBanner}</span>
+            </div>
+          )}
+
+          {/* 4-Layer Deep Linguistic Breakdown when Revealed */}
+          {isRevealed && breakdown && (
+            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
+                    Giải Thích Ngôn Ngữ Chuyên Sâu
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                      Đáp án {currentQuestion.correctAnswer}:{" "}
+                      {breakdown.targetExpression}
+                    </span>
+                    {settings.showIpaAndRegister && (
+                      <>
+                        <span className="text-xs font-mono text-slate-600 dark:text-slate-300">
+                          {breakdown.ipa}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-700 text-[10px] font-semibold text-slate-700 dark:text-slate-200">
+                          {breakdown.register}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => speakEnglishText(breakdown.targetExpression)}
+                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-indigo-600 shrink-0"
+                  title="Nghe phát âm"
+                >
+                  <Volume2 className="w-4 h-4" />
+                </button>
               </div>
-              <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                {currentQuestion.explanation}
-              </p>
+
+              {settings.explanationDepth === "deep" ? (
+                <div className="space-y-2 text-xs leading-relaxed">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
+                      <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>1. Bản chất & Gốc từ (Etymology & Nuance)</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {breakdown.etymologyAndNuance}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
+                      <Layers className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>2. Cấu trúc Kết hợp từ (Collocation & Syntax)</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300 font-medium">
+                      {breakdown.collocationAndSyntax}
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                      <span>3. Phân tích Bẫy (Tại sao phương án khác sai)</span>
+                    </div>
+                    <p className="text-slate-600 dark:text-slate-300">
+                      {breakdown.trapAnalysis}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+                  {currentQuestion.explanation}
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -459,7 +586,10 @@ export default function MobileExamRunner({
         <button
           type="button"
           disabled={currentIndex === 0}
-          onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+          onClick={() => {
+            setAutoSaveBanner(null);
+            setCurrentIndex((i) => Math.max(0, i - 1));
+          }}
           className="px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 disabled:opacity-40 text-xs font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1 transition"
         >
           <ChevronLeft className="w-4 h-4" />
@@ -478,9 +608,10 @@ export default function MobileExamRunner({
         {currentIndex < questions.length - 1 ? (
           <button
             type="button"
-            onClick={() =>
-              setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))
-            }
+            onClick={() => {
+              setAutoSaveBanner(null);
+              setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
+            }}
             className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1 transition"
           >
             <span>Câu tiếp</span>
@@ -498,21 +629,23 @@ export default function MobileExamRunner({
         )}
       </div>
 
-      {/* Submit Anytime Button if Answered > 0 */}
-      {!submittedResult && answeredCount > 0 && currentIndex < questions.length - 1 && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={handleSubmitExam}
-            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>Chấm điểm ngay ({answeredCount}/{questions.length} câu)</span>
-          </button>
-        </div>
-      )}
+      {!submittedResult &&
+        answeredCount > 0 &&
+        currentIndex < questions.length - 1 && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleSubmitExam}
+              className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-xs transition"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>
+                Chấm điểm ngay ({answeredCount}/{questions.length} câu)
+              </span>
+            </button>
+          </div>
+        )}
 
-      {/* Question Number Grid Drawer */}
       {showGridDrawer && (
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 space-y-3">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
