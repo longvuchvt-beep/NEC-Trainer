@@ -1,6 +1,6 @@
 {
   "engine": "node:sqlite + json-mirror",
-  "updated_at": "2026-11-14T15:38:11.647Z",
+  "updated_at": "2026-11-15T14:12:40.670Z",
   "exams": [
     {
       "id": "chon-dt-tphcm-ptnk-2025",
@@ -24247,6 +24247,20 @@
     }
   ],
   "vocab_vault": [
+    {
+      "id": "vocab-1794751960602",
+      "term": "disclose )",
+      "type": "Collocation / Idiom",
+      "phonetic": "",
+      "definition_en": "",
+      "definition_vi": "",
+      "example": "The bioethics committee demanded that the pharmaceutical conglomerate disclose all raw clinical telemetry prior to regulatory approval.",
+      "source_exam": "HSGQG Archive",
+      "grammar_note": "",
+      "mastery_level": 1,
+      "next_review_at": "2026-11-15T14:12:40.635Z",
+      "created_at": "2026-11-15T14:12:40.635Z"
+    },
     {
       "id": "voc-ethically-indefensible",
       "term": "ethically indefensible",

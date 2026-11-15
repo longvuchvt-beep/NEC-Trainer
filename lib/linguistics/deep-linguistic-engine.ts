@@ -293,7 +293,8 @@ export function buildDeepLinguisticBreakdown(input: {
 }): DeepLinguisticBreakdown {
   const rawCorrect = String(input.correctText || "").trim();
   const rawTarget = String(input.targetTerm || rawCorrect)
-    .replace(/\([^)]*\)/g, "")
+    .replace(/\(.*$/g, "")
+    .replace(/[()]/g, "")
     .trim();
   const lowerCheck = `${rawTarget} ${rawCorrect} ${input.stem}`.toLowerCase();
 
