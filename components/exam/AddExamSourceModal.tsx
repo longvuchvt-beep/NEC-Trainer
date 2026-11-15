@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   X,
   Plus,
@@ -9,6 +9,8 @@ import {
   Layers,
   Check,
   ArrowRight,
+  Filter,
+  CheckCircle2,
 } from "lucide-react";
 import {
   AUTHENTIC_SOURCE_CATALOG,
@@ -16,6 +18,7 @@ import {
   createCustomExamFromRawText,
   SafeExam,
 } from "../../lib/safe-data";
+import { scanAndFilterBulkText } from "../../src/lib/question-hydrator";
 
 interface AddExamSourceModalProps {
   isOpen: boolean;
@@ -24,13 +27,39 @@ interface AddExamSourceModalProps {
 }
 
 const TOPIC_FOCUSES = [
-  { id: "ALL", label: "Tổng hợp toàn diện (50 câu C1/C2)" },
+  { id: "ALL", label: "Tổng hợp toàn diện (50 câu C1/C2 & 9+)" },
   { id: "Collocation", label: "Chuyên sâu Kết hợp từ (Collocations)" },
   { id: "Phrasal Verb", label: "Chuyên sâu Cụm động từ (Phrasal Verbs)" },
   { id: "Idiom", label: "Chuyên sâu Thành ngữ (Idioms & Expressions)" },
   { id: "Word Formation", label: "Chuyên sâu Từ loại (Word Formation)" },
   { id: "Lexico-Grammar", label: "Cấu trúc Ngữ pháp & Đảo ngữ C1/C2" },
 ];
+
+const SAMPLE_BULK_RAW_TEXT = `1. What is your name?
+A. John
+B. Book
+C. Table
+D. Chair
+2. She goes to school _____ bus every day.
+A. by
+B. on
+C. in
+D. with
+3. The Prime Minister remained completely _____ to the scathing criticism from the opposition benches.
+A. impervious
+B. imperious
+C. impetuous
+D. impertinent
+4. Hardly had the austerity measures been announced _____ widespread industrial action erupted across the capital.
+A. when
+B. than
+C. that
+D. then
+5. During the cross-examination, the defence barrister managed to _____ holes in the prosecution's circumstantial evidence.
+A. pick
+B. dig
+C. punch
+D. poke`;
 
 export default function AddExamSourceModal({
   isOpen,
@@ -51,6 +80,11 @@ export default function AddExamSourceModal({
   const [topicFocus, setTopicFocus] = useState<string>("ALL");
   const [customTitle, setCustomTitle] = useState<string>("");
   const [rawPasteText, setRawPasteText] = useState<string>("");
+
+  const liveScanPreview = useMemo(() => {
+    if (!rawPasteText.trim()) return null;
+    return scanAndFilterBulkText(rawPasteText);
+  }, [rawPasteText]);
 
   if (!isOpen) return null;
 
@@ -75,10 +109,10 @@ export default function AddExamSourceModal({
       onClose();
     } else {
       const created = createCustomExamFromRawText({
-        title: customTitle || `Đề nhập từ văn bản — ${selectedSchool}`,
+        title: customTitle || `Đề quét & lọc 9+ / C1-C2 — ${selectedSchool}`,
         competition: selectedCatId,
         school: selectedSchool,
-        rawText: rawPasteText,
+        rawText: rawPasteText || SAMPLE_BULK_RAW_TEXT,
       });
       onExamCreated(created);
       onClose();
@@ -92,10 +126,10 @@ export default function AddExamSourceModal({
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
           <div>
             <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-              Thêm nguồn đề chuyên & học thuật
+              Quét & Nạp Đề Hàng Loạt (HSG & THPTQG 9+)
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Chọn trường chuyên / nguồn quốc tế hoặc dán văn bản đề thi
+              Chọn 9 nhóm đề quốc gia hoặc dán văn bản để lọc tự động câu C1/C2 & 9+
             </p>
           </div>
           <button
@@ -130,8 +164,8 @@ export default function AddExamSourceModal({
                 : "text-slate-600 dark:text-slate-400"
             }`}
           >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Dán văn bản đề thi</span>
+            <Filter className="w-3.5 h-3.5" />
+            <span>Quét & Lọc Đề Hàng Loạt</span>
           </button>
         </div>
 
@@ -139,9 +173,9 @@ export default function AddExamSourceModal({
           {/* 1. Tournament / Category Selector */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
-              Nhóm kỳ thi / Nguồn học thuật (6 nhóm chuẩn)
+              Nhóm kỳ thi / Phân khúc (8 Hạng mục Quốc gia + Quốc tế)
             </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-3 gap-1.5">
               {AUTHENTIC_SOURCE_CATALOG.map((cat) => {
                 const active = selectedCatId === cat.id;
                 return (
@@ -149,14 +183,14 @@ export default function AddExamSourceModal({
                     key={cat.id}
                     type="button"
                     onClick={() => handleCategoryChange(cat.id)}
-                    className={`px-2.5 py-2 rounded-xl border text-xs font-semibold text-left flex items-center justify-between transition ${
+                    className={`px-2.5 py-2 rounded-xl border text-[11px] font-semibold text-left flex items-center justify-between transition ${
                       active
                         ? "border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300"
                         : "border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50"
                     }`}
                   >
                     <span className="truncate">{cat.shortLabel}</span>
-                    {active && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    {active && <Check className="w-3 h-3 shrink-0" />}
                   </button>
                 );
               })}
@@ -166,7 +200,7 @@ export default function AddExamSourceModal({
           {/* 2. Specific School / Source Selector */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-              Trường chuyên / Nguồn học thuật thuộc {activeCategory.fullName}
+              Đơn vị / Trường chuyên thuộc {activeCategory.shortLabel}
             </label>
             <select
               value={selectedSchool}
@@ -202,17 +236,41 @@ export default function AddExamSourceModal({
               </div>
             </div>
           ) : (
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Dán nội dung câu hỏi (Tự động bóc tách & bổ sung đủ 50 câu chuẩn)
-              </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Dán đề thô (Tự động loại bỏ câu dễ A1–B1, giữ câu 9+ / C1-C2)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setRawPasteText(SAMPLE_BULK_RAW_TEXT)}
+                  className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Nạp văn bản mẫu
+                </button>
+              </div>
               <textarea
                 rows={5}
                 value={rawPasteText}
                 onChange={(e) => setRawPasteText(e.target.value)}
-                placeholder={`Ví dụ:\n1. The prime minister remained _____ to all criticism.\nA. impervious\nB. oblivious\nC. susceptible\nD. vulnerable`}
+                placeholder={`Dán nội dung đề thi thử THPTQG hoặc đề HSG Tỉnh vào đây...\nHệ thống sẽ tự động loại bỏ các câu nhận biết A1-B1 và giữ lại câu Vận dụng cao 9+ / C1-C2.`}
                 className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 font-mono"
               />
+
+              {liveScanPreview && (
+                <div className="rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/70 p-2.5 flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5 font-semibold text-emerald-800 dark:text-emerald-300">
+                    <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>
+                      Đã quét {liveScanPreview.totalScanned} câu • Loại bỏ{" "}
+                      {liveScanPreview.filteredBasicCount} câu A1-B1
+                    </span>
+                  </div>
+                  <span className="font-bold text-indigo-700 dark:text-indigo-300">
+                    Giữ lại {liveScanPreview.retainedCount} câu 9+ / C1-C2
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

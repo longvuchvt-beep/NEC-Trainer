@@ -6,6 +6,18 @@ import {
   buildDeepLinguisticBreakdown,
   DeepLinguisticBreakdown,
 } from "./linguistics/deep-linguistic-engine";
+import {
+  getCatalog2000,
+  EXAM_TIER_FILTERS,
+  DISTINCT_PROVINCE_NAMES,
+  EXAM_YEARS,
+} from "../src/lib/catalog-2000";
+import {
+  hydrateExamQuestionsOnDemand,
+  scanAndFilterBulkText,
+} from "../src/lib/question-hydrator";
+
+export { EXAM_TIER_FILTERS, DISTINCT_PROVINCE_NAMES, EXAM_YEARS };
 
 export interface SafeQuestionOption {
   id: "A" | "B" | "C" | "D";
@@ -43,6 +55,7 @@ export interface SafeExam {
   questionCount: number;
   questions: SafeQuestion[];
   sections: Record<string, any>;
+  seedIndex?: number;
 }
 
 export interface SourceCategoryDefinition {
@@ -56,17 +69,32 @@ export const AUTHENTIC_SOURCE_CATALOG: SourceCategoryDefinition[] = [
   {
     id: "HSGQG",
     shortLabel: "HSGQG",
-    fullName: "HSG Quốc Gia (NEC - Bộ GD&ĐT)",
+    fullName: "HSG Quốc Gia (NEC & TST - Bộ GD&ĐT)",
     schools: [
       "Đề chính thức Bộ GD&ĐT (NEC)",
       "Đề thi thử Đội tuyển Quốc gia (Vòng 1 & 2)",
-      "Đề Dự tuyển Olympic Quốc tế & Khu vực",
+      "Đề Dự tuyển Olympic Quốc tế & Khu vực (TST)",
+    ],
+  },
+  {
+    id: "Chọn Đội Tuyển",
+    shortLabel: "Chọn Đội Tuyển",
+    fullName: "Đề Chọn Đội Tuyển Quốc Gia (63 Sở GD&ĐT)",
+    schools: [
+      "THPT Chuyên Phan Bội Châu (Nghệ An)",
+      "THPT Chuyên Hà Tĩnh",
+      "THPT Chuyên Lam Sơn (Thanh Hóa)",
+      "THPT Chuyên Hà Nội - Amsterdam",
+      "THPT Chuyên Ngoại Ngữ (CNN - ĐHQGHN)",
+      "THPT Chuyên ĐH Sư Phạm (CSP)",
+      "THPT Chuyên Hùng Vương (Phú Thọ)",
+      "THPT Chuyên Trần Phú (Hải Phòng)",
     ],
   },
   {
     id: "DHBB",
     shortLabel: "DHBB",
-    fullName: "Duyên hải & Đồng bằng Bắc Bộ (DHBB)",
+    fullName: "Duyên hải & Đồng bằng Bắc Bộ (Khối 10 & 11)",
     schools: [
       "THPT Chuyên Trần Phú (Hải Phòng)",
       "THPT Chuyên Hạ Long (Quảng Ninh)",
@@ -79,7 +107,7 @@ export const AUTHENTIC_SOURCE_CATALOG: SourceCategoryDefinition[] = [
   {
     id: "Trại hè Hùng Vương",
     shortLabel: "Hùng Vương",
-    fullName: "Trại hè Hùng Vương",
+    fullName: "Trại hè Hùng Vương & Trại hè Phương Nam",
     schools: [
       "THPT Chuyên Hùng Vương (Phú Thọ)",
       "THPT Chuyên Vĩnh Phúc",
@@ -92,7 +120,7 @@ export const AUTHENTIC_SOURCE_CATALOG: SourceCategoryDefinition[] = [
   {
     id: "Olympic 30/4",
     shortLabel: "Olympic 30/4",
-    fullName: "Olympic Truyền thống 30/4",
+    fullName: "Olympic Truyền thống 30/4 (Miền Nam & Miền Trung)",
     schools: [
       "THPT Chuyên Lê Hồng Phong (TP.HCM)",
       "Phổ Thông Năng Khiếu (ĐHQG TP.HCM)",
@@ -102,22 +130,47 @@ export const AUTHENTIC_SOURCE_CATALOG: SourceCategoryDefinition[] = [
     ],
   },
   {
-    id: "Đội tuyển",
-    shortLabel: "Đội tuyển",
-    fullName: "Đề Chọn Đội Tuyển & HSG Tỉnh",
+    id: "HSG Tỉnh",
+    shortLabel: "HSG Tỉnh",
+    fullName: "HSG Cấp Tỉnh Bảng A & Olympic ĐHQG",
     schools: [
-      "THPT Chuyên Phan Bội Châu (Nghệ An)",
-      "THPT Chuyên Hà Tĩnh",
-      "THPT Chuyên Lam Sơn (Thanh Hóa)",
-      "THPT Chuyên Hà Nội - Amsterdam",
+      "Sở GD&ĐT Hà Nội — HSG Thành phố Bảng A",
+      "Sở GD&ĐT TP.HCM — HSG Thành phố Bảng A",
+      "Sở GD&ĐT Nghệ An — HSG Tỉnh Bảng A",
+      "Olympic bậc THPT ĐHQG Hà Nội",
+      "Sở GD&ĐT Hải Phòng — HSG Thành phố Bảng A",
+    ],
+  },
+  {
+    id: "Vào 10 Chuyên",
+    shortLabel: "Vào 10 Chuyên",
+    fullName: "Tuyển sinh Vào lớp 10 Chuyên Anh Toàn Quốc",
+    schools: [
       "THPT Chuyên Ngoại Ngữ (CNN - ĐHQGHN)",
       "THPT Chuyên ĐH Sư Phạm (CSP)",
+      "THPT Chuyên Hà Nội - Amsterdam",
+      "Phổ Thông Năng Khiếu (ĐHQG TP.HCM)",
+      "THPT Chuyên Lê Hồng Phong (TP.HCM)",
+      "THPT Chuyên Phan Bội Châu (Nghệ An)",
+    ],
+  },
+  {
+    id: "THPTQG Nâng Cao (9+)",
+    shortLabel: "THPTQG 9+",
+    fullName: "Đề Thi Thử THPTQG Vận Dụng Cao (Mục tiêu 9.0–10.0)",
+    schools: [
+      "Liên trường THPT Chuyên Nghệ An - Hà Tĩnh (9+)",
+      "Sở GD&ĐT Hà Nội — Đề khảo sát Vận dụng cao 9+",
+      "Sở GD&ĐT Nam Định — Đề thi thử THPTQG Nâng cao",
+      "Sở GD&ĐT Phú Thọ — Đề khảo sát chất lượng 9+",
+      "THPT Chuyên Ngoại Ngữ — Đề thi thử THPTQG 9.5+",
+      "Sở GD&ĐT Vĩnh Phúc — Đề phân hóa 9.0–10.0",
     ],
   },
   {
     id: "Học thuật Quốc tế",
     shortLabel: "Quốc tế",
-    fullName: "Nguồn Học Thuật Quốc Tế (Academic Sources)",
+    fullName: "Nguồn Học Thuật Quốc Tế (CPE / Economist / Aeon)",
     schools: [
       "Cambridge CPE Use of English (C2 Proficiency)",
       "The Economist — Lexical & Reading Drills",
@@ -133,6 +186,27 @@ const LETTERS: ["A", "B", "C", "D"] = ["A", "B", "C", "D"];
 export function formatCompetitionLabel(raw?: string): string {
   const val = String(raw || "").trim();
   const upper = val.toUpperCase();
+  if (
+    upper.includes("THPTQG") ||
+    upper.includes("9+") ||
+    upper.includes("VẬN DỤNG CAO")
+  ) {
+    return "THPTQG Nâng Cao (9+)";
+  }
+  if (upper.includes("VÀO 10") || upper.includes("TUYỂN SINH 10")) {
+    return "Vào 10 Chuyên";
+  }
+  if (upper.includes("HSG TỈNH") || upper.includes("BẢNG A")) {
+    return "HSG Tỉnh";
+  }
+  if (
+    upper.includes("CHỌN ĐỘI TUYỂN") ||
+    upper.includes("ĐỘI TUYỂN") ||
+    upper.includes("DOI_TUYEN") ||
+    upper.includes("HSG_TINH")
+  ) {
+    return "Chọn Đội Tuyển";
+  }
   if (
     upper.includes("CAMBRIDGE") ||
     upper.includes("ECONOMIST") ||
@@ -151,13 +225,6 @@ export function formatCompetitionLabel(raw?: string): string {
   }
   if (upper.includes("HÙNG VƯƠNG") || upper.includes("HUNG_VUONG")) {
     return "Trại hè Hùng Vương";
-  }
-  if (
-    upper.includes("ĐỘI TUYỂN") ||
-    upper.includes("DOI_TUYEN") ||
-    upper.includes("HSG_TINH")
-  ) {
-    return "Đội tuyển";
   }
   return val || "HSGQG";
 }
@@ -257,15 +324,17 @@ function normalizeQuestionItem(
       `Đáp án đúng là ${correctLetter} ("${correctOptionObj.text}"). Cấu trúc từ vựng - ngữ pháp C1/C2 trọng tâm.`
   ).trim();
 
-  const linguisticBreakdown = buildDeepLinguisticBreakdown({
-    stem: promptText,
-    correctText: correctOptionObj.text,
-    correctLetter,
-    options: normalizedOptions,
-    targetTerm: rawQ?.targetTerm || correctOptionObj.text,
-    category: partTitle,
-    explanation: rawExplanation,
-  });
+  const linguisticBreakdown =
+    rawQ?.linguisticBreakdown ||
+    buildDeepLinguisticBreakdown({
+      stem: promptText,
+      correctText: correctOptionObj.text,
+      correctLetter,
+      options: normalizedOptions,
+      targetTerm: rawQ?.targetTerm || correctOptionObj.text,
+      category: partTitle,
+      explanation: rawExplanation,
+    });
 
   const isTextQuestion =
     rawQ?.type === "text" &&
@@ -306,15 +375,28 @@ function getFallbackPool() {
   return cachedFallbackQuestions;
 }
 
+const hydratedExamCache = new Map<string, SafeExam>();
+
+/**
+ * Full on-demand hydration of a single exam (50 questions across 7 shards + deep 4-layer linguistics).
+ * Called when the user opens an exam in MobileExamRunner or creates a custom exam.
+ */
 export function normalizeExam(rawExam: any, examIndex = 0): SafeExam {
   const safeId = String(rawExam?.id || `exam-safe-${examIndex + 1}`);
+  if (hydratedExamCache.has(safeId) && (!rawExam?.questions || rawExam.questions.length === 0)) {
+    return hydratedExamCache.get(safeId)!;
+  }
+
   const competition = formatCompetitionLabel(
     rawExam?.tournament || rawExam?.competition
   );
-  const province = String(
-    rawExam?.province || rawExam?.school || "Chuyên Quốc Gia"
+  const school = String(
+    rawExam?.school || rawExam?.province || "Chuyên Quốc Gia"
   ).trim();
-  const title = String(rawExam?.title || `Đề thi ${competition} - ${province}`)
+  const province = String(
+    rawExam?.province || rawExam?.school || "Toàn quốc"
+  ).trim();
+  const title = String(rawExam?.title || `Đề thi ${competition} - ${school}`)
     .replace(/\[Auto-Explained[^\]]*\]/gi, "")
     .replace(/\[Ingested[^\]]*\]/gi, "")
     .trim();
@@ -361,9 +443,10 @@ export function normalizeExam(rawExam: any, examIndex = 0): SafeExam {
           q,
           collectedQuestions.length,
           safeId,
-          "lexicoGrammar",
-          "Lexico-Grammar",
-          "Multiple Choice"
+          q?.sectionKey || "lexicoGrammar",
+          q?.sectionTitle || "Lexico-Grammar",
+          q?.partTitle || "Multiple Choice",
+          q?.passageText
         )
       );
     }
@@ -371,47 +454,26 @@ export function normalizeExam(rawExam: any, examIndex = 0): SafeExam {
 
   const MIN_QUESTIONS = 50;
   if (collectedQuestions.length < MIN_QUESTIONS) {
-    const pool = getFallbackPool();
-    const needed = MIN_QUESTIONS - collectedQuestions.length;
-    for (let i = 0; i < needed && pool.length > 0; i++) {
-      const item = pool[(examIndex * 19 + i * 3) % pool.length];
-      const idx = collectedQuestions.length;
-      const safeOpts: [
-        SafeQuestionOption,
-        SafeQuestionOption,
-        SafeQuestionOption,
-        SafeQuestionOption
-      ] = [
-        { id: "A", text: item.options[0] },
-        { id: "B", text: item.options[1] },
-        { id: "C", text: item.options[2] },
-        { id: "D", text: item.options[3] },
-      ];
-      const breakdown = buildDeepLinguisticBreakdown({
-        stem: item.stem,
-        correctText: item.correctText,
-        correctLetter: item.correctLetter,
-        options: safeOpts,
-        targetTerm: item.targetTerm,
-        category: item.category,
-        explanation: item.explanationVi || item.shortTip,
-      });
+    const seedIdx = Number(rawExam?.seedIndex ?? rawExam?.seedOffset ?? examIndex) || 0;
+    const shardedHydrated = hydrateExamQuestionsOnDemand(
+      {
+        id: safeId,
+        competition,
+        school,
+        province,
+        year: Number(rawExam?.year) || 2025,
+        seedIndex: seedIdx,
+      },
+      MIN_QUESTIONS - collectedQuestions.length
+    );
+
+    for (let i = 0; i < shardedHydrated.length; i++) {
+      const sq = shardedHydrated[i];
+      const nextNum = collectedQuestions.length + 1;
       collectedQuestions.push({
-        id: `${safeId}-autofill-${idx + 1}`,
-        number: idx + 1,
-        type: "mcq",
-        prompt: item.stem,
-        stem: item.stem,
-        options: safeOpts,
-        correctAnswer: item.correctLetter,
-        answer: item.correctLetter,
-        explanation: item.explanationVi || item.shortTip,
-        hint: item.explanationVi || item.shortTip,
-        explanationVi: item.explanationVi || item.shortTip,
-        sectionKey: "lexicoGrammar",
-        sectionTitle: "Lexico-Grammar",
-        partTitle: item.category,
-        linguisticBreakdown: breakdown,
+        ...sq,
+        id: `${safeId}-shard-${nextNum}`,
+        number: nextNum,
       });
     }
   }
@@ -422,7 +484,7 @@ export function normalizeExam(rawExam: any, examIndex = 0): SafeExam {
     sections.lexicoGrammar.parts.length === 0
   ) {
     sections.lexicoGrammar = {
-      title: "Lexico-Grammar",
+      title: "Lexico-Grammar & Reading",
       parts: [
         {
           id: `${safeId}-part-main`,
@@ -434,13 +496,13 @@ export function normalizeExam(rawExam: any, examIndex = 0): SafeExam {
     };
   }
 
-  return {
+  const finalExam: SafeExam = {
     ...rawExam,
     id: safeId,
     title,
     competition,
     tournament: competition,
-    school: province,
+    school,
     province,
     year: Number(rawExam?.year) || 2025,
     durationMinutes: Number(rawExam?.durationMinutes) || 180,
@@ -448,14 +510,17 @@ export function normalizeExam(rawExam: any, examIndex = 0): SafeExam {
     questions: collectedQuestions,
     sections,
   };
+
+  hydratedExamCache.set(safeId, finalExam);
+  return finalExam;
 }
 
-// Curated expansion sources across all 6 authentic categories so every category & specialized school is represented
 const EXPANDED_SCHOOL_TEMPLATES: Array<{
   id: string;
   title: string;
   competition: string;
   school: string;
+  province: string;
   year: number;
   seedOffset: number;
 }> = [
@@ -464,6 +529,7 @@ const EXPANDED_SCHOOL_TEMPLATES: Array<{
     title: "Đề Trại hè Hùng Vương — THPT Chuyên Vĩnh Phúc",
     competition: "Trại hè Hùng Vương",
     school: "THPT Chuyên Vĩnh Phúc",
+    province: "Vĩnh Phúc",
     year: 2025,
     seedOffset: 7,
   },
@@ -472,78 +538,43 @@ const EXPANDED_SCHOOL_TEMPLATES: Array<{
     title: "Đề Trại hè Hùng Vương — THPT Chuyên Thái Nguyên",
     competition: "Trại hè Hùng Vương",
     school: "THPT Chuyên Thái Nguyên",
+    province: "Thái Nguyên",
     year: 2025,
     seedOffset: 15,
-  },
-  {
-    id: "exam-hv-lao-cai-2024",
-    title: "Đề Trại hè Hùng Vương — THPT Chuyên Lào Cai & Tuyên Quang",
-    competition: "Trại hè Hùng Vương",
-    school: "THPT Chuyên Lào Cai",
-    year: 2024,
-    seedOffset: 23,
   },
   {
     id: "exam-dhbb-ha-long-2025",
     title: "Đề Duyên hải Bắc Bộ — THPT Chuyên Hạ Long (Quảng Ninh)",
     competition: "DHBB",
     school: "THPT Chuyên Hạ Long (Quảng Ninh)",
+    province: "Quảng Ninh",
     year: 2025,
     seedOffset: 31,
-  },
-  {
-    id: "exam-dhbb-bac-ninh-2025",
-    title: "Đề Duyên hải Bắc Bộ — THPT Chuyên Bắc Ninh",
-    competition: "DHBB",
-    school: "THPT Chuyên Bắc Ninh",
-    year: 2025,
-    seedOffset: 41,
-  },
-  {
-    id: "exam-dhbb-nguyen-trai-2024",
-    title: "Đề Duyên hải Bắc Bộ — THPT Chuyên Nguyễn Trãi & Thái Bình",
-    competition: "DHBB",
-    school: "THPT Chuyên Nguyễn Trãi (Hải Dương)",
-    year: 2024,
-    seedOffset: 53,
   },
   {
     id: "exam-olympic-quoc-hoc-hue-2025",
     title: "Đề Olympic Truyền thống 30/4 — THPT Chuyên Quốc Học (Huế)",
     competition: "Olympic 30/4",
     school: "THPT Chuyên Quốc Học (Huế)",
+    province: "Thừa Thiên Huế",
     year: 2025,
     seedOffset: 61,
   },
   {
-    id: "exam-olympic-thoai-ngoc-hau-2024",
-    title: "Đề Olympic Truyền thống 30/4 — THPT Chuyên Thoại Ngọc Hầu (An Giang)",
-    competition: "Olympic 30/4",
-    school: "THPT Chuyên Thoại Ngọc Hầu (An Giang)",
-    year: 2024,
-    seedOffset: 73,
-  },
-  {
     id: "exam-dt-cnn-csp-2025",
     title: "Đề Chọn Đội Tuyển — THPT Chuyên Ngoại Ngữ (CNN) & Chuyên Sư Phạm",
-    competition: "Đội tuyển",
+    competition: "Chọn Đội Tuyển",
     school: "THPT Chuyên Ngoại Ngữ (CNN - ĐHQGHN)",
+    province: "Hà Nội",
     year: 2025,
     seedOffset: 83,
-  },
-  {
-    id: "exam-dt-ha-tinh-amsterdam-2025",
-    title: "Đề Chọn Đội Tuyển — THPT Chuyên Hà Nội - Amsterdam & Chuyên Hà Tĩnh",
-    competition: "Đội tuyển",
-    school: "THPT Chuyên Hà Nội - Amsterdam",
-    year: 2025,
-    seedOffset: 97,
   },
   {
     id: "exam-intl-cambridge-cpe-2025",
     title: "Cambridge CPE C2 Proficiency — Use of English & Lexical Precision",
     competition: "Học thuật Quốc tế",
     school: "Cambridge CPE Use of English (C2 Proficiency)",
+    province: "Quốc tế",
     year: 2025,
     seedOffset: 109,
   },
@@ -552,6 +583,7 @@ const EXPANDED_SCHOOL_TEMPLATES: Array<{
     title: "The Economist, Aeon Essays & New Scientist — Academic Discourse Set",
     competition: "Học thuật Quốc tế",
     school: "The Economist & Aeon Essays",
+    province: "Quốc tế",
     year: 2025,
     seedOffset: 127,
   },
@@ -569,7 +601,7 @@ export function getCustomUserExams(): any[] {
 }
 
 export function saveCustomUserExam(examObj: any): SafeExam {
-  const norm = normalizeExam(examObj, Date.now() % 100);
+  const norm = normalizeExam(examObj, Date.now() % 1000);
   if (typeof window !== "undefined") {
     try {
       const existing = getCustomUserExams().filter((e) => e?.id !== norm.id);
@@ -624,7 +656,7 @@ export function generateSpecializedSourceExam(params: {
     id: `custom-src-${Date.now()}`,
     title:
       params.customTitle?.trim() ||
-      `Đề chuyên đề ${params.topicFocus === "ALL" ? "Tổng hợp C1/C2" : params.topicFocus} — ${params.school}`,
+      `Đề chuyên đề ${params.topicFocus === "ALL" ? "Tổng hợp C1/C2 & 9+" : params.topicFocus} — ${params.school}`,
     competition: params.competition,
     tournament: params.competition,
     school: params.school,
@@ -643,82 +675,72 @@ export function createCustomExamFromRawText(params: {
   school: string;
   rawText: string;
 }): SafeExam {
-  const lines = String(params.rawText || "")
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter(Boolean);
-
-  const parsedQuestions: any[] = [];
-  let currentStem = "";
-  let currentOpts: string[] = [];
-
-  const flushCurrent = () => {
-    if (!currentStem) return;
-    const idx = parsedQuestions.length;
-    const slot = LETTERS[idx % 4];
-    const opts =
-      currentOpts.length >= 4
-        ? currentOpts.slice(0, 4)
-        : [
-            currentOpts[0] || "Option A",
-            currentOpts[1] || "Option B",
-            currentOpts[2] || "Option C",
-            currentOpts[3] || "Option D",
-          ];
-    parsedQuestions.push({
-      id: `imported-q-${Date.now()}-${idx + 1}`,
-      number: idx + 1,
-      type: "mcq",
-      prompt: currentStem,
-      options: [
-        { id: "A", text: opts[0] },
-        { id: "B", text: opts[1] },
-        { id: "C", text: opts[2] },
-        { id: "D", text: opts[3] },
-      ],
-      correctAnswer: slot,
-      explanation: `Câu hỏi trích xuất từ nguồn đề ${params.school}. Đáp án chuẩn: ${slot}.`,
-    });
-    currentStem = "";
-    currentOpts = [];
-  };
-
-  for (const line of lines) {
-    if (/^[A-D][\.\)]\s+/i.test(line)) {
-      currentOpts.push(line.replace(/^[A-D][\.\)]\s+/i, "").trim());
-      if (currentOpts.length === 4) {
-        flushCurrent();
-      }
-    } else if (/^(Question\s+\d+|Câu\s+\d+|\d+[\.\)])\s+/i.test(line)) {
-      if (currentStem) flushCurrent();
-      currentStem = line.replace(/^(Question\s+\d+|Câu\s+\d+|\d+[\.\)])\s+/i, "").trim();
-    } else if (!currentStem) {
-      currentStem = line;
-    } else {
-      currentStem += " " + line;
-    }
-  }
-  if (currentStem) flushCurrent();
+  const scanRes = scanAndFilterBulkText(params.rawText || "");
+  const retained = scanRes.retainedQuestions.map((rq, idx) => ({
+    id: `scanned-q-${Date.now()}-${idx + 1}`,
+    number: idx + 1,
+    type: "mcq",
+    prompt: rq.stem,
+    options: [
+      { id: "A", text: rq.options[0] },
+      { id: "B", text: rq.options[1] },
+      { id: "C", text: rq.options[2] },
+      { id: "D", text: rq.options[3] },
+    ],
+    correctAnswer: rq.correctLetter,
+    targetTerm: rq.targetTerm,
+    partTitle: rq.category,
+    explanation: rq.explanationVi,
+  }));
 
   const rawExam = {
     id: `imported-exam-${Date.now()}`,
-    title: params.title?.trim() || `Đề nhập từ văn bản — ${params.school}`,
+    title: params.title?.trim() || `Đề quét & lọc C1/C2 (9+) — ${params.school}`,
     competition: params.competition,
     tournament: params.competition,
     school: params.school,
     province: params.school,
     year: 2025,
     durationMinutes: 90,
-    questions: parsedQuestions,
+    questions: retained,
   };
 
   return saveCustomUserExam(rawExam);
 }
 
+export function createBulkScannedExamWithReport(params: {
+  title: string;
+  competition: string;
+  school: string;
+  rawText: string;
+}) {
+  const scanReport = scanAndFilterBulkText(params.rawText || "");
+  const createdExam = createCustomExamFromRawText(params);
+  return {
+    exam: createdExam,
+    totalScanned: scanReport.totalScanned,
+    retainedCount: scanReport.retainedCount,
+    filteredBasicCount: scanReport.filteredBasicCount,
+  };
+}
+
+/**
+ * High-speed Catalog Normalization (2,060+ exams).
+ * Does NOT eagerly hydrate 50 questions × 2,060 exams on initial list render.
+ * Instead, returns lightweight catalog items (`questionCount: 50`) so filtering & virtual pagination run at 60fps.
+ * When any exam is opened in MobileExamRunner, `normalizeExam(rawExam)` hydrates all 50 questions on-demand!
+ */
 export function normalizeExamList(rawExams: any): SafeExam[] {
   const baseList = Array.isArray(rawExams) ? rawExams : [];
   const customList = getCustomUserExams();
-  const combined = [...customList, ...baseList, ...EXPANDED_SCHOOL_TEMPLATES];
+  const catalog2000 = getCatalog2000();
+
+  const combined = [
+    ...customList,
+    ...baseList,
+    ...EXPANDED_SCHOOL_TEMPLATES,
+    ...catalog2000,
+  ];
 
   const seenIds = new Set<string>();
   const result: SafeExam[] = [];
@@ -726,12 +748,36 @@ export function normalizeExamList(rawExams: any): SafeExam[] {
   for (let i = 0; i < combined.length; i++) {
     const raw = combined[i];
     if (!raw || typeof raw !== "object") continue;
-    const seedIdx = Number(raw.seedOffset) || i;
-    const norm = normalizeExam(raw, seedIdx);
-    if (seenIds.has(norm.id)) continue;
-    seenIds.add(norm.id);
-    result.push(norm);
+    const safeId = String(raw.id || `exam-safe-${i + 1}`);
+    if (seenIds.has(safeId)) continue;
+    seenIds.add(safeId);
+
+    const competition = formatCompetitionLabel(raw.tournament || raw.competition);
+    const school = String(raw.school || raw.province || "Chuyên Quốc Gia").trim();
+    const province = String(raw.province || raw.school || "Toàn quốc").trim();
+    const title = String(raw.title || `Đề thi ${competition} — ${school}`)
+      .replace(/\[Auto-Explained[^\]]*\]/gi, "")
+      .replace(/\[Ingested[^\]]*\]/gi, "")
+      .trim();
+
+    const seedIndex = Number(raw.seedIndex ?? raw.seedOffset ?? i) || i;
+
+    result.push({
+      id: safeId,
+      title,
+      competition,
+      tournament: competition,
+      school,
+      province,
+      year: Number(raw.year) || 2025,
+      durationMinutes: Number(raw.durationMinutes) || 120,
+      questionCount: Number(raw.questionCount) || 50,
+      questions: Array.isArray(raw.questions) ? raw.questions : [],
+      sections: raw.sections && typeof raw.sections === "object" ? raw.sections : {},
+      seedIndex,
+    });
   }
+
   return result;
 }
 
@@ -798,23 +844,23 @@ export class GlobalErrorBoundary extends React.Component<
           React.createElement(
             "h2",
             { className: "text-lg font-bold text-slate-900" },
-            this.props.fallbackTitle || "Đã xảy ra sự cố hiển thị"
+            this.props.fallbackTitle || "Đang khôi phục phiên làm việc"
           ),
           React.createElement(
             "p",
-            { className: "text-sm text-slate-600 leading-relaxed" },
-            "Hệ thống đã tự động bảo vệ dữ liệu làm bài của bạn. Vui lòng bấm nút bên dưới để tải lại trang."
+            { className: "text-xs text-slate-500 leading-relaxed" },
+            this.state.errorMessage
           ),
           React.createElement(
             "div",
-            { className: "flex flex-col sm:flex-row gap-2.5 pt-2" },
+            { className: "flex items-center justify-center gap-3 pt-2" },
             React.createElement(
               "button",
               {
                 type: "button",
                 onClick: this.handleReload,
                 className:
-                  "flex-1 py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition",
+                  "px-4 py-2.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 transition",
               },
               "Tải lại trang"
             ),
@@ -824,15 +870,14 @@ export class GlobalErrorBoundary extends React.Component<
                 type: "button",
                 onClick: this.handleHardReset,
                 className:
-                  "py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-sm font-medium transition",
+                  "px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold hover:bg-slate-100 transition",
               },
-              "Về trang chủ"
+              "Làm mới dữ liệu"
             )
           )
         )
       );
     }
-
     return this.props.children;
   }
 }

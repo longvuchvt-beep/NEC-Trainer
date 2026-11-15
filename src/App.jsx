@@ -15,7 +15,12 @@ import {
   RotateCcw,
   LogIn,
   Plus,
-  Settings
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  MapPin,
+  Calendar,
+  Filter
 } from 'lucide-react';
 
 import MobileExamRunner from '../components/exam/MobileExamRunner';
@@ -25,7 +30,9 @@ import AuthModal from '../components/auth/AuthModal';
 import ProfileView from '../components/auth/ProfileView';
 import {
   GlobalErrorBoundary,
-  normalizeExamList
+  normalizeExamList,
+  DISTINCT_PROVINCE_NAMES,
+  EXAM_YEARS
 } from '../lib/safe-data';
 import {
   getExamCompletionStatus,
@@ -53,22 +60,33 @@ installServerlessFetchInterceptor();
 const COMPETITION_FILTERS = [
   { id: 'ALL', label: 'Tất cả' },
   { id: 'HSGQG', label: 'HSGQG' },
+  { id: 'Chọn Đội Tuyển', label: 'Chọn Đội Tuyển' },
   { id: 'DHBB', label: 'DHBB' },
   { id: 'Trại hè Hùng Vương', label: 'Trại hè Hùng Vương' },
   { id: 'Olympic 30/4', label: 'Olympic 30/4' },
-  { id: 'Đội tuyển', label: 'Đội tuyển' },
+  { id: 'HSG Tỉnh', label: 'HSG Tỉnh' },
+  { id: 'Vào 10 Chuyên', label: 'Vào 10 Chuyên' },
+  { id: 'THPTQG Nâng Cao (9+)', label: 'THPTQG Nâng Cao (9+)' },
   { id: 'Học thuật Quốc tế', label: 'Học thuật Quốc tế' }
 ];
 
 const COMPETITION_BADGE_STYLES = {
-  HSGQG: 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/70',
-  DHBB: 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/70',
-  'Olympic 30/4':
-    'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/70',
+  HSGQG:
+    'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/70',
+  'Chọn Đội Tuyển':
+    'bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/70',
+  DHBB:
+    'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/70',
   'Trại hè Hùng Vương':
     'bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800/70',
-  'Đội tuyển':
-    'bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/70',
+  'Olympic 30/4':
+    'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/70',
+  'HSG Tỉnh':
+    'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800/70',
+  'Vào 10 Chuyên':
+    'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/70',
+  'THPTQG Nâng Cao (9+)':
+    'bg-fuchsia-50 dark:bg-fuchsia-950/60 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/70',
   'Học thuật Quốc tế':
     'bg-cyan-50 dark:bg-cyan-950/60 text-cyan-800 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/70'
 };
@@ -78,6 +96,8 @@ const FONT_SIZE_CLASS_MAP = {
   'A+': 'text-lg',
   'A++': 'text-xl'
 };
+
+const EXAMS_PER_PAGE = 24;
 
 export default function App() {
   // 1. Theme & Font Scale
@@ -115,9 +135,14 @@ export default function App() {
   const [authModalMode, setAuthModalMode] = useState('register');
   const [addSourceModalOpen, setAddSourceModalOpen] = useState(false);
 
-  // 5. Filters & Active Exam Runner State
+  // 5. Multi-Faceted Filters & Virtual Pagination State
   const [selectedCompetition, setSelectedCompetition] = useState('ALL');
+  const [selectedProvince, setSelectedProvince] = useState('ALL');
+  const [selectedYear, setSelectedYear] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
   const [activeExamId, setActiveExamId] = useState(null);
   const [activeExamMode, setActiveExamMode] = useState('practice');
 
@@ -169,6 +194,11 @@ export default function App() {
     window.addEventListener('popstate', syncPath);
     return () => window.removeEventListener('popstate', syncPath);
   }, []);
+
+  // Reset pagination to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCompetition, selectedProvince, selectedYear, selectedStatus, searchQuery]);
 
   const handleOpenExam = (examId, mode = 'practice') => {
     setActiveExamId(examId);
@@ -224,18 +254,70 @@ export default function App() {
 
   const filteredExams = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const recentSubs = stats?.recentSubmissions || [];
+
     return safeExams.filter((exam) => {
       if (selectedCompetition !== 'ALL' && exam.competition !== selectedCompetition) {
         return false;
+      }
+      if (selectedProvince !== 'ALL') {
+        const provMatch =
+          exam.province === selectedProvince ||
+          exam.school.toLowerCase().includes(selectedProvince.toLowerCase()) ||
+          exam.title.toLowerCase().includes(selectedProvince.toLowerCase());
+        if (!provMatch) return false;
+      }
+      if (selectedYear !== 'ALL' && String(exam.year) !== String(selectedYear)) {
+        return false;
+      }
+      if (selectedStatus !== 'ALL') {
+        const compStatus = getExamCompletionStatus(
+          exam.id,
+          exam.questionCount || 50,
+          recentSubs
+        );
+        if (selectedStatus !== compStatus.status) return false;
       }
       if (!q) return true;
       return (
         exam.title.toLowerCase().includes(q) ||
         exam.school.toLowerCase().includes(q) ||
+        exam.province.toLowerCase().includes(q) ||
         exam.competition.toLowerCase().includes(q)
       );
     });
-  }, [safeExams, selectedCompetition, searchQuery]);
+  }, [
+    safeExams,
+    selectedCompetition,
+    selectedProvince,
+    selectedYear,
+    selectedStatus,
+    searchQuery,
+    stats,
+    sessionRefreshTick
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredExams.length / EXAMS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedExams = useMemo(() => {
+    const startIdx = (safeCurrentPage - 1) * EXAMS_PER_PAGE;
+    return filteredExams.slice(startIdx, startIdx + EXAMS_PER_PAGE);
+  }, [filteredExams, safeCurrentPage]);
+
+  const visiblePageNumbers = useMemo(() => {
+    const pages = [];
+    const maxButtons = 5;
+    let start = Math.max(1, safeCurrentPage - 2);
+    let end = Math.min(totalPages, start + maxButtons - 1);
+    if (end - start + 1 < maxButtons) {
+      start = Math.max(1, end - maxButtons + 1);
+    }
+    for (let p = start; p <= end; p++) {
+      pages.push(p);
+    }
+    return pages;
+  }, [safeCurrentPage, totalPages]);
 
   const activeExamObj = useMemo(() => {
     if (!activeExamId) return null;
@@ -251,6 +333,14 @@ export default function App() {
     { id: 'game3d', label: 'Game 3D', icon: Gamepad2 },
     { id: 'profile', label: 'Tài khoản', icon: User }
   ];
+
+  const handlePageJump = (page) => {
+    const clamped = Math.max(1, Math.min(totalPages, page));
+    setCurrentPage(clamped);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   return (
     <GlobalErrorBoundary>
@@ -351,7 +441,7 @@ export default function App() {
         {/* MAIN CONTENT AREA                                                */}
         {/* ================================================================ */}
         <main className="flex-1 w-full max-w-5xl mx-auto px-3.5 sm:px-6 pt-4 pb-24 md:pb-10">
-          {/* TAB 1: ĐỀ THI (EXAMS LIBRARY OR ACTIVE EXAM RUNNER) */}
+          {/* TAB 1: ĐỀ THI (2,050+ EXAMS LIBRARY OR ACTIVE EXAM RUNNER) */}
           {activeTab === 'exams' && (
             <>
               {activeExamObj ? (
@@ -369,31 +459,46 @@ export default function App() {
                 />
               ) : (
                 <div className="space-y-4">
-                  {/* Search, "+ Thêm nguồn đề" & 6 Competition Category Filters */}
-                  <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 shadow-xs space-y-3">
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          placeholder="Tìm đề thi, trường chuyên, tỉnh thành, CPE, Economist..."
-                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
-                        />
+                  {/* Live Counter Header + Search + Multi-Filter Bar */}
+                  <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 sm:p-4 shadow-xs space-y-3">
+                    {/* Top Row: Live Counter Header & Bulk Scanner Button */}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h1 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                          <span>
+                            Kho Đề Toàn Quốc ({safeExams.length.toLocaleString('en-US')} bộ đề)
+                          </span>
+                        </h1>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Đang hiển thị {filteredExams.length.toLocaleString('en-US')} bộ đề • Trang{' '}
+                          {safeCurrentPage}/{totalPages} (63 Tỉnh/Thành & 75+ Trường Chuyên)
+                        </p>
                       </div>
 
                       <button
                         type="button"
                         onClick={() => setAddSourceModalOpen(true)}
-                        className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition"
+                        className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shrink-0 transition"
                       >
                         <Plus className="w-4 h-4" />
                         <span>Thêm nguồn đề</span>
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                    {/* Row 2: Search Input */}
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Tìm đề thi, trường chuyên (Phan Bội Châu, Amsterdam, Lê Hồng Phong...), tỉnh thành, THPTQG 9+..."
+                        className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    {/* Row 3: 8-Tier Competition Pills */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
                       {COMPETITION_FILTERS.map((f) => {
                         const active = selectedCompetition === f.id;
                         return (
@@ -412,15 +517,70 @@ export default function App() {
                         );
                       })}
                     </div>
+
+                    {/* Row 4: Multi-Faceted Dropdown Filters (63 Provinces, Year 2015-2026, Status) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                      {/* 63 Provinces Dropdown */}
+                      <div className="relative">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <select
+                          aria-label="Lọc theo Tỉnh/Thành"
+                          value={selectedProvince}
+                          onChange={(e) => setSelectedProvince(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-200"
+                        >
+                          <option value="ALL">Tất cả 63 Tỉnh/Thành</option>
+                          {DISTINCT_PROVINCE_NAMES.map((prov) => (
+                            <option key={prov} value={prov}>
+                              {prov}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Year 2015-2026 Dropdown */}
+                      <div className="relative">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <select
+                          aria-label="Lọc theo Năm"
+                          value={selectedYear}
+                          onChange={(e) => setSelectedYear(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-200"
+                        >
+                          <option value="ALL">Tất cả năm (2015–2026)</option>
+                          {EXAM_YEARS.map((yr) => (
+                            <option key={yr} value={String(yr)}>
+                              Năm {yr}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Completion Status Dropdown */}
+                      <div className="relative">
+                        <Filter className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <select
+                          aria-label="Lọc theo Trạng thái"
+                          value={selectedStatus}
+                          onChange={(e) => setSelectedStatus(e.target.value)}
+                          className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-800 dark:text-slate-200"
+                        >
+                          <option value="ALL">Tất cả trạng thái</option>
+                          <option value="NOT_STARTED">Chưa làm</option>
+                          <option value="IN_PROGRESS">Đang làm dở</option>
+                          <option value="COMPLETED">Đã hoàn thành</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Clean Exam Cards Grid (Max 2 Badges per Card + Question Count + Progress Bar) */}
+                  {/* Paginated Exam Cards Grid (24 Cards per Page) */}
                   <div
-                    key={sessionRefreshTick}
+                    key={`${sessionRefreshTick}-${safeCurrentPage}`}
                     className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
                   >
-                    {filteredExams.map((exam) => {
-                      const totalQ = exam.questionCount || exam.questions.length || 60;
+                    {paginatedExams.map((exam) => {
+                      const totalQ = exam.questionCount || exam.questions.length || 50;
                       const compStatus = getExamCompletionStatus(
                         exam.id,
                         totalQ,
@@ -535,6 +695,82 @@ export default function App() {
                       );
                     })}
                   </div>
+
+                  {/* Virtual Pagination Bar (24 Exams per Page) */}
+                  {totalPages > 1 && (
+                    <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3 flex flex-wrap items-center justify-between gap-2 shadow-xs">
+                      <button
+                        type="button"
+                        disabled={safeCurrentPage <= 1}
+                        onClick={() => handlePageJump(safeCurrentPage - 1)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                        <span>Trang trước</span>
+                      </button>
+
+                      <div className="flex items-center gap-1">
+                        {visiblePageNumbers[0] > 1 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handlePageJump(1)}
+                              className="w-8 h-8 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            >
+                              1
+                            </button>
+                            {visiblePageNumbers[0] > 2 && (
+                              <span className="text-xs text-slate-400 px-1">...</span>
+                            )}
+                          </>
+                        )}
+
+                        {visiblePageNumbers.map((pageNum) => {
+                          const active = pageNum === safeCurrentPage;
+                          return (
+                            <button
+                              key={pageNum}
+                              type="button"
+                              onClick={() => handlePageJump(pageNum)}
+                              className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
+                                active
+                                  ? 'bg-indigo-600 text-white'
+                                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+
+                        {visiblePageNumbers[visiblePageNumbers.length - 1] < totalPages && (
+                          <>
+                            {visiblePageNumbers[visiblePageNumbers.length - 1] <
+                              totalPages - 1 && (
+                              <span className="text-xs text-slate-400 px-1">...</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handlePageJump(totalPages)}
+                              className="px-2 h-8 rounded-lg text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            >
+                              {totalPages}
+                            </button>
+                          </>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={safeCurrentPage >= totalPages}
+                        onClick={() => handlePageJump(safeCurrentPage + 1)}
+                        className="px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold flex items-center gap-1 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                      >
+                        <span>Trang sau</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </>
