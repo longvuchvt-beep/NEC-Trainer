@@ -808,7 +808,28 @@ export default function Kangaroo3DGame({
       return () => {
         cancelAnimationFrame(frameId);
         window.removeEventListener("resize", handleResize);
+        scene.traverse((obj: any) => {
+          if (obj.geometry && typeof obj.geometry.dispose === "function") {
+            obj.geometry.dispose();
+          }
+          if (obj.material) {
+            if (Array.isArray(obj.material)) {
+              obj.material.forEach((m: any) => {
+                if (m && typeof m.dispose === "function") m.dispose();
+              });
+            } else if (typeof obj.material.dispose === "function") {
+              obj.material.dispose();
+            }
+          }
+        });
+        scene.clear();
         renderer?.dispose();
+        try {
+          renderer?.forceContextLoss();
+        } catch {}
+        if (container) {
+          container.innerHTML = "";
+        }
       };
     }
 

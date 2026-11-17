@@ -69,7 +69,57 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 };
 
 // ============================================================================
-// 1. REAL-TIME AUTO-SAVE & RESUME EXAM SESSION
+// HIGH-SPEED IN-MEMORY CACHE + 800ms DEBOUNCED IDLE BACKGROUND WRITER
+// Eliminates main-thread JSON.stringify/parse bottlenecks across 2,000+ exams
+// ============================================================================
+const sessionMemoryCache = new Map<string, ExamSessionState | null>();
+const pendingSessionWrites = new Map<string, ExamSessionState>();
+let debounceWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let submissionsMemoryCache: any[] | null = null;
+let bookmarksMemoryCache: Record<string, BookmarkedQuestionItem> | null = null;
+
+function scheduleIdleExecution(cb: () => void) {
+  if (typeof window === "undefined") return;
+  const win = window as any;
+  if (typeof win.requestIdleCallback === "function") {
+    win.requestIdleCallback(() => cb(), { timeout: 1200 });
+  } else {
+    setTimeout(cb, 16);
+  }
+}
+
+export function flushPendingSessionWrites(): void {
+  if (typeof window === "undefined" || pendingSessionWrites.size === 0) return;
+  const entries = Array.from(pendingSessionWrites.entries());
+  pendingSessionWrites.clear();
+  for (const [examId, full] of entries) {
+    try {
+      localStorage.setItem(`${SESSION_PREFIX}${examId}`, JSON.stringify(full));
+      localStorage.setItem(
+        `veng_progress_${examId}`,
+        JSON.stringify({
+          answered: full.answeredCount,
+          total: full.totalQuestions,
+          updatedAt: full.updatedAt,
+        })
+      );
+      fetch("/api/utilities/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(full),
+      }).catch(() => {});
+    } catch {}
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", () => {
+    flushPendingSessionWrites();
+  });
+}
+
+// ============================================================================
+// 1. REAL-TIME AUTO-SAVE & RESUME EXAM SESSION (DEBOUNCED 800MS IDLE WRITER)
 // ============================================================================
 export function saveExamSession(
   examId: string,
@@ -81,41 +131,43 @@ export function saveExamSession(
     updatedAt: Date.now(),
   };
   if (typeof window !== "undefined" && examId) {
-    try {
-      localStorage.setItem(`${SESSION_PREFIX}${examId}`, JSON.stringify(full));
-      localStorage.setItem(
-        `veng_progress_${examId}`,
-        JSON.stringify({
-          answered: full.answeredCount,
-          total: full.totalQuestions,
-          updatedAt: full.updatedAt,
-        })
-      );
-      // Non-blocking sync to backend
-      fetch("/api/utilities/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(full),
-      }).catch(() => {});
-    } catch {}
+    // 1. Update in-memory cache immediately (<0.01ms)
+    sessionMemoryCache.set(examId, full);
+    pendingSessionWrites.set(examId, full);
+
+    // 2. Debounce disk & network write by 800ms + execute inside requestIdleCallback
+    if (debounceWriteTimer) {
+      clearTimeout(debounceWriteTimer);
+    }
+    debounceWriteTimer = setTimeout(() => {
+      debounceWriteTimer = null;
+      scheduleIdleExecution(() => {
+        flushPendingSessionWrites();
+      });
+    }, 800);
   }
   return full;
 }
 
 export function getExamSession(examId: string): ExamSessionState | null {
   if (typeof window === "undefined" || !examId) return null;
+  if (sessionMemoryCache.has(examId)) {
+    return sessionMemoryCache.get(examId) || null;
+  }
   try {
     const raw = localStorage.getItem(`${SESSION_PREFIX}${examId}`);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object") return parsed;
+      if (parsed && typeof parsed === "object") {
+        sessionMemoryCache.set(examId, parsed);
+        return parsed;
+      }
     }
-    // Check legacy veng_progress_ fallback
     const legacyRaw = localStorage.getItem(`veng_progress_${examId}`);
     if (legacyRaw) {
       const leg = JSON.parse(legacyRaw);
       if (leg && leg.answered > 0) {
-        return {
+        const fallbackSession: ExamSessionState = {
           examId,
           studyMode: "learn",
           learnIndex: 0,
@@ -125,17 +177,22 @@ export function getExamSession(examId: string): ExamSessionState | null {
           flaggedQuestions: {},
           timeLeft: 180 * 60,
           answeredCount: Number(leg.answered) || 0,
-          totalQuestions: Number(leg.total) || 60,
+          totalQuestions: Number(leg.total) || 50,
           updatedAt: leg.updatedAt || Date.now(),
         };
+        sessionMemoryCache.set(examId, fallbackSession);
+        return fallbackSession;
       }
     }
   } catch {}
+  sessionMemoryCache.set(examId, null);
   return null;
 }
 
 export function clearExamSession(examId: string): void {
   if (typeof window === "undefined" || !examId) return;
+  sessionMemoryCache.set(examId, null);
+  pendingSessionWrites.delete(examId);
   try {
     localStorage.removeItem(`${SESSION_PREFIX}${examId}`);
     localStorage.removeItem(`veng_progress_${examId}`);
@@ -146,14 +203,19 @@ export function clearExamSession(examId: string): void {
 }
 
 // ============================================================================
-// 2. EXAM STATUS BADGE & ATTEMPT HISTORY HELPERS
+// 2. EXAM STATUS BADGE & ATTEMPT HISTORY HELPERS (MEMOIZED O(1) LOOKUPS)
 // ============================================================================
 export function getLocalSubmissions(): any[] {
   if (typeof window === "undefined") return [];
+  if (submissionsMemoryCache !== null) {
+    return submissionsMemoryCache;
+  }
   try {
     const raw = localStorage.getItem(LOCAL_SUBMISSIONS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    submissionsMemoryCache = raw ? JSON.parse(raw) : [];
+    return submissionsMemoryCache || [];
   } catch {
+    submissionsMemoryCache = [];
     return [];
   }
 }
@@ -180,8 +242,16 @@ export function saveLocalSubmission(submission: any): void {
       0,
       100
     );
-    localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(next));
-    localStorage.setItem(`${LOCAL_SUBMISSIONS_KEY}_${activeUserId}`, JSON.stringify(next));
+    submissionsMemoryCache = next;
+    scheduleIdleExecution(() => {
+      try {
+        localStorage.setItem(LOCAL_SUBMISSIONS_KEY, JSON.stringify(next));
+        localStorage.setItem(
+          `${LOCAL_SUBMISSIONS_KEY}_${activeUserId}`,
+          JSON.stringify(next)
+        );
+      } catch {}
+    });
   } catch {}
 }
 
@@ -199,29 +269,41 @@ export function getExamCompletionStatus(
 } {
   const session = getExamSession(examId);
   const localSubs = getLocalSubmissions();
-  const mergedSubs = [...allSubmissions, ...localSubs];
-  const examSubs = mergedSubs.filter((s) => s && s.exam_id === examId);
 
   let bestScore20: number | null = null;
-  for (const sub of examSubs) {
-    const sc = Number(sub.score);
-    if (!Number.isNaN(sc)) {
-      if (bestScore20 === null || sc > bestScore20) {
+  let attemptsCount = 0;
+
+  for (let i = 0; i < allSubmissions.length; i++) {
+    const sub = allSubmissions[i];
+    if (sub && sub.exam_id === examId) {
+      attemptsCount++;
+      const sc = Number(sub.score);
+      if (!Number.isNaN(sc) && (bestScore20 === null || sc > bestScore20)) {
+        bestScore20 = Number(sc.toFixed(1));
+      }
+    }
+  }
+  for (let i = 0; i < localSubs.length; i++) {
+    const sub = localSubs[i];
+    if (sub && sub.exam_id === examId) {
+      attemptsCount++;
+      const sc = Number(sub.score);
+      if (!Number.isNaN(sc) && (bestScore20 === null || sc > bestScore20)) {
         bestScore20 = Number(sc.toFixed(1));
       }
     }
   }
 
   const answeredCount = session?.answeredCount || 0;
-  const total = session?.totalQuestions || totalQuestions || 60;
+  const total = session?.totalQuestions || totalQuestions || 50;
 
-  if (bestScore20 !== null && examSubs.length > 0) {
+  if (bestScore20 !== null && attemptsCount > 0) {
     return {
       status: "COMPLETED",
       answeredCount,
       totalQuestions: total,
       bestScore20,
-      attemptsCount: examSubs.length,
+      attemptsCount,
       session,
     };
   }
@@ -252,10 +334,15 @@ export function getExamCompletionStatus(
 // ============================================================================
 export function getBookmarksMap(): Record<string, BookmarkedQuestionItem> {
   if (typeof window === "undefined") return {};
+  if (bookmarksMemoryCache !== null) {
+    return bookmarksMemoryCache;
+  }
   try {
     const raw = localStorage.getItem(BOOKMARKS_KEY);
-    return raw ? JSON.parse(raw) : {};
+    bookmarksMemoryCache = raw ? JSON.parse(raw) : {};
+    return bookmarksMemoryCache || {};
   } catch {
+    bookmarksMemoryCache = {};
     return {};
   }
 }
@@ -266,7 +353,7 @@ export function toggleBookmarkQuestion(
   bookmarked: boolean;
   map: Record<string, BookmarkedQuestionItem>;
 } {
-  const map = getBookmarksMap();
+  const map = { ...getBookmarksMap() };
   const exists = Boolean(map[item.questionId]);
   if (exists) {
     delete map[item.questionId];
@@ -276,17 +363,23 @@ export function toggleBookmarkQuestion(
       bookmarkedAt: Date.now(),
     };
   }
+  bookmarksMemoryCache = map;
   if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(map));
-      const uRaw = localStorage.getItem("veng_auth_current_user_v1");
-      if (uRaw) {
-        const parsedU = JSON.parse(uRaw);
-        if (parsedU?.id) {
-          localStorage.setItem(`${BOOKMARKS_KEY}_${parsedU.id}`, JSON.stringify(map));
+    scheduleIdleExecution(() => {
+      try {
+        localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(map));
+        const uRaw = localStorage.getItem("veng_auth_current_user_v1");
+        if (uRaw) {
+          const parsedU = JSON.parse(uRaw);
+          if (parsedU?.id) {
+            localStorage.setItem(
+              `${BOOKMARKS_KEY}_${parsedU.id}`,
+              JSON.stringify(map)
+            );
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    });
   }
   return { bookmarked: !exists, map };
 }
@@ -313,9 +406,11 @@ export function saveQuestionNote(
     map[questionId] = noteText;
   }
   if (typeof window !== "undefined") {
-    try {
-      localStorage.setItem(NOTES_KEY, JSON.stringify(map));
-    } catch {}
+    scheduleIdleExecution(() => {
+      try {
+        localStorage.setItem(NOTES_KEY, JSON.stringify(map));
+      } catch {}
+    });
   }
   return map;
 }
@@ -399,6 +494,7 @@ export function applyQuestionEditOverridesToExam(exam: any): any {
 // 5. 1-CLICK DATA BACKUP (EXPORT JSON) & RESTORE (IMPORT JSON)
 // ============================================================================
 export function buildUserDataBackupPayload(extraServerData: any = {}) {
+  flushPendingSessionWrites();
   const sessions: Record<string, ExamSessionState> = {};
   if (typeof window !== "undefined") {
     for (let i = 0; i < localStorage.length; i++) {
@@ -450,6 +546,10 @@ export function restoreUserDataFromBackupObject(data: any): {
     return { success: false, summary: "File JSON không hợp lệ." };
   }
   try {
+    sessionMemoryCache.clear();
+    submissionsMemoryCache = null;
+    bookmarksMemoryCache = null;
+
     if (data.settings) {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings));
     }

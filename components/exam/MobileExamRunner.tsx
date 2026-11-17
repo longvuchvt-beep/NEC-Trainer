@@ -1,10 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import {
   ArrowLeft,
-  Clock,
-  Bookmark,
   CheckCircle2,
   XCircle,
   ChevronLeft,
@@ -12,11 +16,11 @@ import {
   RotateCcw,
   LayoutGrid,
   Send,
-  BookOpen,
   Award,
+  Brain,
+  Zap,
   Volume2,
-  Layers,
-  AlertCircle,
+  Timer,
 } from "lucide-react";
 import { SafeExam, SafeQuestion, normalizeExam } from "../../lib/safe-data";
 import {
@@ -26,27 +30,31 @@ import {
   saveLocalSubmission,
   getBookmarksMap,
   toggleBookmarkQuestion,
+  flushPendingSessionWrites,
 } from "../../lib/utilities/core-utilities-store";
 import { addUserXp } from "../../lib/auth/auth-store";
 import {
   getFullSettings,
   autoSaveMistakeItem,
-  speakEnglishText,
   incrementDailyAnsweredCount,
 } from "../../lib/linguistics/deep-linguistic-engine";
+import {
+  getIntuitionModePreference,
+  setIntuitionModePreference,
+  getLockedReflexIds,
+  recordLockedReflex,
+  buildRedemptionTwinCard,
+  RedemptionTwinCard,
+  speakLexicalChunkEnGB,
+} from "../../lib/linguistics/second-nature-engine";
+import ExamTimer from "./ExamTimer";
+import MemoizedQuestionCard from "./MemoizedQuestionCard";
 
 interface MobileExamRunnerProps {
   exam: any;
   initialMode?: "practice" | "test";
   onClose: () => void;
   onSavedSubmission?: (submission: any) => void;
-}
-
-function formatTimer(seconds: number): string {
-  const s = Math.max(0, Math.floor(seconds));
-  const mins = Math.floor(s / 60);
-  const rem = s % 60;
-  return `${String(mins).padStart(2, "0")}:${String(rem).padStart(2, "0")}`;
 }
 
 export default function MobileExamRunner({
@@ -96,19 +104,42 @@ export default function MobileExamRunner({
     return existingSession?.learnChecked || {};
   });
 
-  const [timeLeft, setTimeLeft] = useState<number>(() => {
-    return existingSession?.timeLeft || (safeExam.durationMinutes || 90) * 60;
-  });
+  // Isolated Timer Ref (never triggers parent re-renders on 1-second ticks)
+  const initialSeconds =
+    existingSession?.timeLeft || (safeExam.durationMinutes || 90) * 60;
+  const timeLeftRef = useRef<number>(initialSeconds);
+  const [timerResetSignal, setTimerResetSignal] = useState<number>(0);
 
   const [bookmarksMap, setBookmarksMap] = useState(() => getBookmarksMap());
   const [showGridDrawer, setShowGridDrawer] = useState(false);
-  const [showPassage, setShowPassage] = useState(false);
   const [autoSaveBanner, setAutoSaveBanner] = useState<string | null>(null);
   const [submittedResult, setSubmittedResult] = useState<{
     score20: number;
     correctCount: number;
     totalCount: number;
   } | null>(null);
+
+  // ==========================================================================
+  // SECOND-NATURE (BẢN NĂNG NGÔN NGỮ) TRAINING STATE
+  // ==========================================================================
+  const [intuitionMode, setIntuitionMode] = useState<boolean>(() =>
+    getIntuitionModePreference()
+  );
+  const [lockedReflexIds, setLockedReflexIds] = useState<string[]>(() =>
+    getLockedReflexIds()
+  );
+
+  // 3-Question Micro-Loop Queue & Active Redemption Twin Card
+  const [redemptionQueue, setRedemptionQueue] = useState<RedemptionTwinCard[]>(
+    []
+  );
+  const [activeRedemptionTwin, setActiveRedemptionTwin] =
+    useState<RedemptionTwinCard | null>(null);
+  const [twinSelectedAns, setTwinSelectedAns] = useState<string | null>(null);
+  const [twinSecondsLeft, setTwinSecondsLeft] = useState<number>(5);
+  const [twinLockedSuccess, setTwinLockedSuccess] = useState<boolean | null>(
+    null
+  );
 
   const currentQuestion: SafeQuestion =
     questions[currentIndex] || questions[0];
@@ -118,7 +149,7 @@ export default function MobileExamRunner({
     [answers]
   );
 
-  // Auto-save progress on change
+  // Debounced background session auto-save (800ms via requestIdleCallback in core-utilities-store)
   useEffect(() => {
     if (submittedResult) return;
     saveExamSession(safeExam.id, {
@@ -129,7 +160,7 @@ export default function MobileExamRunner({
       learnChecked: checkedMap,
       testAnswers: answers,
       flaggedQuestions: {},
-      timeLeft,
+      timeLeft: timeLeftRef.current,
       answeredCount,
       totalQuestions: questions.length,
     });
@@ -140,63 +171,168 @@ export default function MobileExamRunner({
     currentIndex,
     answers,
     checkedMap,
-    timeLeft,
     answeredCount,
     questions.length,
     submittedResult,
   ]);
 
-  // Countdown timer in Test mode
+  // Flush pending writes when leaving exam runner
   useEffect(() => {
-    if (mode !== "test" || submittedResult) return;
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    return () => {
+      flushPendingSessionWrites();
+    };
+  }, []);
+
+  // 5-Second Countdown for Active Redemption Twin Card
+  useEffect(() => {
+    if (!activeRedemptionTwin || twinSelectedAns !== null) return;
+    setTwinSecondsLeft(5);
+    const id = setInterval(() => {
+      setTwinSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
-    return () => clearInterval(timer);
-  }, [mode, submittedResult]);
+    return () => clearInterval(id);
+  }, [activeRedemptionTwin, twinSelectedAns]);
 
-  const handleSelectOption = (optionId: string) => {
-    if (!currentQuestion || submittedResult) return;
-    const qId = currentQuestion.id;
+  const handleToggleIntuitionMode = useCallback(() => {
+    setIntuitionMode((prev) => {
+      const next = !prev;
+      setIntuitionModePreference(next);
+      return next;
+    });
+  }, []);
 
-    if (mode === "practice" && checkedMap[qId]) return;
+  // Advance Micro-Loop Counter & Trigger Redemption Twin after 3 questions
+  const advanceMicroLoopStep = useCallback(
+    (nextQuestionIdx: number) => {
+      setRedemptionQueue((prevQueue) => {
+        if (prevQueue.length === 0) return prevQueue;
+        const updated = prevQueue.map((item) => ({
+          ...item,
+          answeredSinceQueued: item.answeredSinceQueued + 1,
+        }));
 
-    const nextAnswers = { ...answers, [qId]: optionId };
-    setAnswers(nextAnswers);
-    incrementDailyAnsweredCount(1);
+        const readyIdx = updated.findIndex(
+          (item) =>
+            item.answeredSinceQueued >= item.triggerAfterCount ||
+            nextQuestionIdx + 1 >= item.originQuestionNumber + 3
+        );
 
-    if (mode === "practice") {
-      setCheckedMap((prev) => ({ ...prev, [qId]: true }));
-      if (optionId === currentQuestion.correctAnswer) {
-        addUserXp(15);
-        setAutoSaveBanner(null);
-      } else {
-        const correctOpt =
-          currentQuestion.options.find(
-            (o) => o.id === currentQuestion.correctAnswer
-          ) || currentQuestion.options[0];
-        const res = autoSaveMistakeItem({
-          questionId: currentQuestion.id,
-          stem: currentQuestion.prompt,
-          options: currentQuestion.options,
-          userWrongAnswer: optionId,
-          correctAnswer: currentQuestion.correctAnswer,
-          correctText: correctOpt.text,
-          targetTerm: currentQuestion.linguisticBreakdown?.targetExpression,
-          category: currentQuestion.partTitle,
-          explanation: currentQuestion.explanation,
-          sourceTag: `${safeExam.competition} • ${safeExam.school}`,
-        });
-        if (res.saved) {
-          setAutoSaveBanner(
-            "Đã tự động lưu vào Sổ Từ Sai kèm giải thích chuyên sâu"
+        if (readyIdx >= 0 && !activeRedemptionTwin) {
+          const triggered = updated[readyIdx];
+          setTimeout(() => {
+            setTwinSelectedAns(null);
+            setTwinLockedSuccess(null);
+            setTwinSecondsLeft(5);
+            setActiveRedemptionTwin(triggered);
+          }, 180);
+          return updated.filter((_, idx) => idx !== readyIdx);
+        }
+        return updated;
+      });
+    },
+    [activeRedemptionTwin]
+  );
+
+  const handleSelectOption = useCallback(
+    (optionId: string) => {
+      if (!currentQuestion || submittedResult) return;
+      const qId = currentQuestion.id;
+
+      if (mode === "practice" && checkedMap[qId]) return;
+
+      setAnswers((prev) => ({ ...prev, [qId]: optionId }));
+      incrementDailyAnsweredCount(1);
+
+      if (mode === "practice") {
+        setCheckedMap((prev) => ({ ...prev, [qId]: true }));
+        if (optionId === currentQuestion.correctAnswer) {
+          addUserXp(15);
+          setAutoSaveBanner(null);
+          advanceMicroLoopStep(currentIndex);
+        } else {
+          const correctOpt =
+            currentQuestion.options.find(
+              (o) => o.id === currentQuestion.correctAnswer
+            ) || currentQuestion.options[0];
+          const res = autoSaveMistakeItem({
+            questionId: currentQuestion.id,
+            stem: currentQuestion.prompt,
+            options: currentQuestion.options,
+            userWrongAnswer: optionId,
+            correctAnswer: currentQuestion.correctAnswer,
+            correctText: correctOpt.text,
+            targetTerm: currentQuestion.linguisticBreakdown?.targetExpression,
+            category: currentQuestion.partTitle,
+            explanation: currentQuestion.explanation,
+            sourceTag: `${safeExam.competition} • ${safeExam.school}`,
+          });
+
+          // Queue 3-Question Micro-Loop Redemption Twin Card!
+          const twinCard = buildRedemptionTwinCard(
+            currentQuestion,
+            currentIndex + 1
           );
+          setRedemptionQueue((prev) => {
+            const filtered = prev.filter(
+              (t) => t.originQuestionId !== currentQuestion.id
+            );
+            return [...filtered, twinCard];
+          });
+
+          if (res.saved) {
+            setAutoSaveBanner(
+              `Đã lưu vào Sổ Từ Sai & Đặt lịch Lặp lại Tức thì sau 3 câu (sau Câu ${Math.min(
+                questions.length,
+                currentIndex + 4
+              )})`
+            );
+          }
         }
       }
-    }
-  };
+    },
+    [
+      currentQuestion,
+      submittedResult,
+      mode,
+      checkedMap,
+      safeExam.competition,
+      safeExam.school,
+      currentIndex,
+      questions.length,
+      advanceMicroLoopStep,
+    ]
+  );
 
-  const handleToggleBookmark = () => {
+  const handleAnswerRedemptionTwin = useCallback(
+    (optId: "A" | "B" | "C" | "D") => {
+      if (!activeRedemptionTwin || twinSelectedAns !== null) return;
+      setTwinSelectedAns(optId);
+      const isCorrect = optId === activeRedemptionTwin.correctAnswer;
+      const within5Sec = twinSecondsLeft > 0;
+
+      if (isCorrect && within5Sec) {
+        setTwinLockedSuccess(true);
+        addUserXp(25);
+        const updatedLocked = recordLockedReflex(
+          activeRedemptionTwin.originQuestionId
+        );
+        setLockedReflexIds(updatedLocked);
+        speakLexicalChunkEnGB(activeRedemptionTwin.lexicalChunkTarget);
+      } else if (isCorrect) {
+        setTwinLockedSuccess(true);
+        addUserXp(15);
+        const updatedLocked = recordLockedReflex(
+          activeRedemptionTwin.originQuestionId
+        );
+        setLockedReflexIds(updatedLocked);
+      } else {
+        setTwinLockedSuccess(false);
+      }
+    },
+    [activeRedemptionTwin, twinSelectedAns, twinSecondsLeft]
+  );
+
+  const handleToggleBookmark = useCallback(() => {
     if (!currentQuestion) return;
     const res = toggleBookmarkQuestion({
       questionId: currentQuestion.id,
@@ -211,19 +347,28 @@ export default function MobileExamRunner({
       explanationVi: currentQuestion.explanation,
     });
     setBookmarksMap({ ...res.map });
-  };
+  }, [
+    currentQuestion,
+    safeExam.id,
+    safeExam.title,
+    safeExam.competition,
+    currentIndex,
+  ]);
 
-  const handleResetExam = () => {
+  const handleResetExam = useCallback(() => {
     clearExamSession(safeExam.id);
     setAnswers({});
     setCheckedMap({});
     setCurrentIndex(0);
     setSubmittedResult(null);
     setAutoSaveBanner(null);
-    setTimeLeft((safeExam.durationMinutes || 90) * 60);
-  };
+    setRedemptionQueue([]);
+    setActiveRedemptionTwin(null);
+    timeLeftRef.current = (safeExam.durationMinutes || 90) * 60;
+    setTimerResetSignal((s) => s + 1);
+  }, [safeExam.id, safeExam.durationMinutes]);
 
-  const handleSubmitExam = () => {
+  const handleSubmitExam = useCallback(() => {
     let correctCount = 0;
     for (const q of questions) {
       const userAns = String(answers[q.id] || "").trim().toUpperCase();
@@ -273,27 +418,38 @@ export default function MobileExamRunner({
       correctCount,
       totalCount,
     });
-  };
+  }, [
+    questions,
+    answers,
+    safeExam.id,
+    safeExam.title,
+    safeExam.competition,
+    safeExam.school,
+    onSavedSubmission,
+  ]);
 
   const isBookmarked = Boolean(
     currentQuestion && bookmarksMap[currentQuestion.id]
   );
-  const selectedAns = currentQuestion ? answers[currentQuestion.id] : "";
+  const selectedAns = currentQuestion ? answers[currentQuestion.id] || "" : "";
   const isRevealed =
     Boolean(submittedResult) ||
     (mode === "practice" &&
       Boolean(currentQuestion && checkedMap[currentQuestion.id]));
 
+  const isCurrentQuestionLockedReflex = Boolean(
+    currentQuestion && lockedReflexIds.includes(currentQuestion.id)
+  );
+
   const progressPct = Math.round(
     (answeredCount / Math.max(1, questions.length)) * 100
   );
-  const breakdown = currentQuestion?.linguisticBreakdown;
 
   return (
     <div className="max-w-2xl mx-auto pb-16 space-y-3">
       {/* Top Bar */}
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-3.5 shadow-xs space-y-3">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <button
             type="button"
             onClick={onClose}
@@ -330,10 +486,13 @@ export default function MobileExamRunner({
 
           <div className="flex items-center gap-1.5">
             {mode === "test" && !submittedResult && (
-              <div className="px-2.5 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200/70 dark:border-amber-800 text-xs font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                <span>{formatTimer(timeLeft)}</span>
-              </div>
+              <ExamTimer
+                initialSeconds={initialSeconds}
+                isRunning={mode === "test" && !submittedResult}
+                resetSignal={timerResetSignal}
+                timeLeftRef={timeLeftRef}
+                onExpire={handleSubmitExam}
+              />
             )}
             <button
               type="button"
@@ -343,6 +502,50 @@ export default function MobileExamRunner({
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
+          </div>
+        </div>
+
+        {/* Second-Nature Intuition Mode Header Control + Micro-Loop Status */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={handleToggleIntuitionMode}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition ${
+              intuitionMode
+                ? "bg-indigo-600 border-indigo-600 text-white shadow-2xs"
+                : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+            }`}
+          >
+            <Brain className="w-3.5 h-3.5" />
+            <span>
+              Chế độ Rèn Bản Năng (Intuition Mode): {intuitionMode ? "BẬT" : "TẮT"}
+            </span>
+          </button>
+
+          <div className="flex items-center gap-1.5">
+            {redemptionQueue.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextTwin = redemptionQueue[0];
+                  setRedemptionQueue((q) => q.slice(1));
+                  setTwinSelectedAns(null);
+                  setTwinLockedSuccess(null);
+                  setTwinSecondsLeft(5);
+                  setActiveRedemptionTwin(nextTwin);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1 hover:bg-amber-100 transition"
+                title="Nhấn để kiểm tra thẻ lặp lại tức thì ngay"
+              >
+                <Timer className="w-3 h-3" />
+                <span>Lặp sau 3 câu: {redemptionQueue.length}</span>
+              </button>
+            )}
+
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+              <Zap className="w-3 h-3" />
+              <span>Đã Khóa Phản Xạ: {lockedReflexIds.length}</span>
+            </span>
           </div>
         </div>
 
@@ -364,6 +567,109 @@ export default function MobileExamRunner({
           </div>
         </div>
       </div>
+
+      {/* Mechanic 4: "3-Question Micro-Loop" Instant Redemption Twin Card Popup */}
+      {activeRedemptionTwin && (
+        <div className="rounded-2xl bg-indigo-950 text-white border-2 border-indigo-400 p-4 sm:p-5 shadow-xl space-y-3.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 text-xs font-extrabold">
+                Vòng Lặp Tức Thì Sau 3 Câu ( từ Câu #{activeRedemptionTwin.originQuestionNumber} )
+              </span>
+              <span className="text-xs text-indigo-200 font-semibold">
+                Trả lời trong 5 giây để khóa vào Bản năng C1/C2
+              </span>
+            </div>
+
+            <div className="px-2.5 py-1 rounded-lg bg-indigo-900 border border-indigo-500 text-xs font-bold tabular-nums flex items-center gap-1">
+              <Timer className="w-3.5 h-3.5 text-amber-300" />
+              <span>{twinSecondsLeft}s</span>
+            </div>
+          </div>
+
+          <p className="text-sm sm:text-base font-bold text-white leading-relaxed">
+            {activeRedemptionTwin.microPrompt}
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {activeRedemptionTwin.options.map((opt) => {
+              const isSelected = twinSelectedAns === opt.id;
+              const isCorrect = opt.id === activeRedemptionTwin.correctAnswer;
+              let btnStyle =
+                "border-indigo-700 bg-indigo-900/70 hover:border-amber-400 text-white";
+              if (twinSelectedAns !== null) {
+                if (isCorrect) {
+                  btnStyle = "border-emerald-400 bg-emerald-600 text-white";
+                } else if (isSelected && !isCorrect) {
+                  btnStyle = "border-rose-400 bg-rose-600 text-white";
+                }
+              }
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleAnswerRedemptionTwin(opt.id)}
+                  className={`p-3 rounded-xl border-2 text-left text-xs sm:text-sm font-semibold flex items-center justify-between gap-2 transition ${btnStyle}`}
+                >
+                  <span>
+                    {opt.id}. {opt.text}
+                  </span>
+                  {twinSelectedAns !== null && isCorrect && (
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  )}
+                  {twinSelectedAns !== null && isSelected && !isCorrect && (
+                    <XCircle className="w-4 h-4 shrink-0" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {twinSelectedAns !== null && (
+            <div className="p-3 rounded-xl bg-indigo-900/90 border border-indigo-700 flex flex-wrap items-center justify-between gap-2">
+              <div className="space-y-0.5">
+                {twinLockedSuccess ? (
+                  <div className="text-xs font-extrabold text-emerald-300 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>
+                      Đã Khóa Phản Xạ (Locked Into Second-Nature) +25 XP!
+                    </span>
+                  </div>
+                ) : (
+                  <div className="text-xs font-bold text-rose-300">
+                    Cụm chuẩn cần nhớ: [{activeRedemptionTwin.lexicalChunkTarget}]
+                  </div>
+                )}
+                <div className="text-[11px] text-indigo-200">
+                  Công thức: {activeRedemptionTwin.syntacticFormula}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    speakLexicalChunkEnGB(
+                      activeRedemptionTwin.lexicalChunkTarget
+                    )
+                  }
+                  className="px-2.5 py-1.5 rounded-lg bg-indigo-800 hover:bg-indigo-700 text-xs font-semibold flex items-center gap-1"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span>Nghe en-GB</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveRedemptionTwin(null)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold"
+                >
+                  Tiếp tục làm đề
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Submitted Score Banner */}
       {submittedResult && (
@@ -397,188 +703,22 @@ export default function MobileExamRunner({
         </div>
       )}
 
-      {/* Active Question Card */}
+      {/* Memoized Question Card (Only re-renders when active question props change) */}
       {currentQuestion && (
-        <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 p-4 sm:p-5 shadow-xs space-y-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
-                Câu {currentIndex + 1} / {questions.length}
-              </span>
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate max-w-[180px]">
-                {currentQuestion.partTitle}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {currentQuestion.passageText && (
-                <button
-                  type="button"
-                  onClick={() => setShowPassage((v) => !v)}
-                  className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1"
-                >
-                  <BookOpen className="w-3.5 h-3.5" />
-                  <span>{showPassage ? "Ẩn bài đọc" : "Bài đọc"}</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handleToggleBookmark}
-                className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold flex items-center gap-1 transition ${
-                  isBookmarked
-                    ? "border-amber-400 bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300"
-                    : "border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                <Bookmark
-                  className={`w-3.5 h-3.5 ${
-                    isBookmarked ? "fill-amber-500 text-amber-500" : ""
-                  }`}
-                />
-                <span>{isBookmarked ? "Đã lưu" : "Lưu câu"}</span>
-              </button>
-            </div>
-          </div>
-
-          {showPassage && currentQuestion.passageText && (
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700 max-h-60 overflow-y-auto text-xs sm:text-sm leading-relaxed text-slate-800 dark:text-slate-200 font-serif whitespace-pre-line">
-              {currentQuestion.passageText}
-            </div>
-          )}
-
-          <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 leading-relaxed">
-            {currentQuestion.prompt}
-          </p>
-
-          <div className="space-y-2.5">
-            {currentQuestion.options.map((opt) => {
-              const isSelected = selectedAns === opt.id;
-              const isCorrectOption = opt.id === currentQuestion.correctAnswer;
-
-              let cardClass =
-                "border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 hover:border-indigo-500";
-
-              if (isRevealed) {
-                if (isCorrectOption) {
-                  cardClass =
-                    "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-900 dark:text-emerald-100";
-                } else if (isSelected && !isCorrectOption) {
-                  cardClass =
-                    "border-rose-500 bg-rose-50 dark:bg-rose-950/50 text-rose-900 dark:text-rose-100";
-                }
-              } else if (isSelected) {
-                cardClass =
-                  "border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-950 dark:text-indigo-100";
-              }
-
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => handleSelectOption(opt.id)}
-                  className={`w-full p-3.5 rounded-xl border-2 text-left flex items-center justify-between gap-3 transition active:scale-[0.99] ${cardClass}`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-7 h-7 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-xs font-bold shrink-0">
-                      {opt.id}
-                    </span>
-                    <span className="text-xs sm:text-sm font-medium leading-snug break-words">
-                      {opt.text}
-                    </span>
-                  </div>
-                  {isRevealed && isCorrectOption && (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                  )}
-                  {isRevealed && isSelected && !isCorrectOption && (
-                    <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {autoSaveBanner && isRevealed && selectedAns !== currentQuestion.correctAnswer && (
-            <div className="px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/70 text-xs font-semibold text-indigo-800 dark:text-indigo-200 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
-              <span>{autoSaveBanner}</span>
-            </div>
-          )}
-
-          {/* 4-Layer Deep Linguistic Breakdown when Revealed */}
-          {isRevealed && breakdown && (
-            <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400">
-                    Giải Thích Ngôn Ngữ Chuyên Sâu
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                    <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                      Đáp án {currentQuestion.correctAnswer}:{" "}
-                      {breakdown.targetExpression}
-                    </span>
-                    {settings.showIpaAndRegister && (
-                      <>
-                        <span className="text-xs font-mono text-slate-600 dark:text-slate-300">
-                          {breakdown.ipa}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-slate-200/80 dark:bg-slate-700 text-[10px] font-semibold text-slate-700 dark:text-slate-200">
-                          {breakdown.register}
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => speakEnglishText(breakdown.targetExpression)}
-                  className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-indigo-600 shrink-0"
-                  title="Nghe phát âm"
-                >
-                  <Volume2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              {settings.explanationDepth === "deep" ? (
-                <div className="space-y-2 text-xs leading-relaxed">
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
-                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
-                      <BookOpen className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>1. Bản chất & Gốc từ (Etymology & Nuance)</span>
-                    </div>
-                    <p className="text-slate-600 dark:text-slate-300">
-                      {breakdown.etymologyAndNuance}
-                    </p>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
-                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
-                      <Layers className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>2. Cấu trúc Kết hợp từ (Collocation & Syntax)</span>
-                    </div>
-                    <p className="text-slate-600 dark:text-slate-300 font-medium">
-                      {breakdown.collocationAndSyntax}
-                    </p>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-700">
-                    <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 mb-0.5">
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                      <span>3. Phân tích Bẫy (Tại sao phương án khác sai)</span>
-                    </div>
-                    <p className="text-slate-600 dark:text-slate-300">
-                      {breakdown.trapAnalysis}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {currentQuestion.explanation}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+        <MemoizedQuestionCard
+          question={currentQuestion}
+          questionIndex={currentIndex}
+          totalQuestions={questions.length}
+          selectedAns={selectedAns}
+          isRevealed={isRevealed}
+          isBookmarked={isBookmarked}
+          intuitionModeEnabled={intuitionMode}
+          isLockedReflex={isCurrentQuestionLockedReflex}
+          autoSaveBanner={autoSaveBanner}
+          settings={settings}
+          onSelectOption={handleSelectOption}
+          onToggleBookmark={handleToggleBookmark}
+        />
       )}
 
       {/* Bottom Question Navigation Controls */}
@@ -610,7 +750,9 @@ export default function MobileExamRunner({
             type="button"
             onClick={() => {
               setAutoSaveBanner(null);
-              setCurrentIndex((i) => Math.min(questions.length - 1, i + 1));
+              const nextIdx = Math.min(questions.length - 1, currentIndex + 1);
+              setCurrentIndex(nextIdx);
+              advanceMicroLoopStep(nextIdx);
             }}
             className="px-3.5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1 transition"
           >

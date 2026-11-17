@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, Suspense } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useDeferredValue,
+  Suspense
+} from 'react';
 import {
   BookOpen,
   Layers,
@@ -24,13 +30,10 @@ import {
 } from 'lucide-react';
 
 import MobileExamRunner from '../components/exam/MobileExamRunner';
-import AddExamSourceModal from '../components/exam/AddExamSourceModal';
-import MobileFlashcardsView from '../components/flashcards/MobileFlashcardsView';
-import AuthModal from '../components/auth/AuthModal';
-import ProfileView from '../components/auth/ProfileView';
 import {
   GlobalErrorBoundary,
   normalizeExamList,
+  resolveExamByIdOrSlug,
   DISTINCT_PROVINCE_NAMES,
   EXAM_YEARS
 } from '../lib/safe-data';
@@ -51,8 +54,21 @@ import {
   installServerlessFetchInterceptor
 } from './lib/serverless-client-engine';
 
+// Code-Split Heavy Modules (Zero-Cost during Exam Browsing & Solving)
 const LazyKangaroo3DGame = React.lazy(() =>
   import('../components/arcade/Kangaroo3DGame')
+);
+const LazyAddExamSourceModal = React.lazy(() =>
+  import('../components/exam/AddExamSourceModal')
+);
+const LazyMobileFlashcardsView = React.lazy(() =>
+  import('../components/flashcards/MobileFlashcardsView')
+);
+const LazyProfileView = React.lazy(() =>
+  import('../components/auth/ProfileView')
+);
+const LazyAuthModal = React.lazy(() =>
+  import('../components/auth/AuthModal')
 );
 
 installServerlessFetchInterceptor();
@@ -126,7 +142,7 @@ export default function App() {
 
   const safeExams = useMemo(
     () => normalizeExamList(rawExams),
-    [rawExams, sessionRefreshTick]
+    [rawExams]
   );
 
   // 4. User Auth & Source Importer Modals
@@ -141,9 +157,14 @@ export default function App() {
   const [selectedYear, setSelectedYear] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [activeExamId, setActiveExamId] = useState(null);
+  const [activeExamId, setActiveExamId] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const match = window.location.pathname.match(/^\/exams\/([^/]+)/);
+    return match && match[1] ? decodeURIComponent(match[1]) : null;
+  });
   const [activeExamMode, setActiveExamMode] = useState('practice');
 
   // Sync theme to document
@@ -188,6 +209,8 @@ export default function App() {
       } else if (path === '/profile') {
         setActiveExamId(null);
         setActiveTab('profile');
+      } else {
+        setActiveExamId(null);
       }
     };
     syncPath();
@@ -198,7 +221,13 @@ export default function App() {
   // Reset pagination to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedCompetition, selectedProvince, selectedYear, selectedStatus, searchQuery]);
+  }, [
+    selectedCompetition,
+    selectedProvince,
+    selectedYear,
+    selectedStatus,
+    deferredSearchQuery
+  ]);
 
   const handleOpenExam = (examId, mode = 'practice') => {
     setActiveExamId(examId);
@@ -253,8 +282,9 @@ export default function App() {
   };
 
   const filteredExams = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+    const q = deferredSearchQuery.trim().toLowerCase();
     const recentSubs = stats?.recentSubmissions || [];
+    const provLower = selectedProvince !== 'ALL' ? selectedProvince.toLowerCase() : '';
 
     return safeExams.filter((exam) => {
       if (selectedCompetition !== 'ALL' && exam.competition !== selectedCompetition) {
@@ -263,8 +293,7 @@ export default function App() {
       if (selectedProvince !== 'ALL') {
         const provMatch =
           exam.province === selectedProvince ||
-          exam.school.toLowerCase().includes(selectedProvince.toLowerCase()) ||
-          exam.title.toLowerCase().includes(selectedProvince.toLowerCase());
+          (exam._searchIndex && exam._searchIndex.includes(provLower));
         if (!provMatch) return false;
       }
       if (selectedYear !== 'ALL' && String(exam.year) !== String(selectedYear)) {
@@ -279,12 +308,9 @@ export default function App() {
         if (selectedStatus !== compStatus.status) return false;
       }
       if (!q) return true;
-      return (
-        exam.title.toLowerCase().includes(q) ||
-        exam.school.toLowerCase().includes(q) ||
-        exam.province.toLowerCase().includes(q) ||
-        exam.competition.toLowerCase().includes(q)
-      );
+      return exam._searchIndex
+        ? exam._searchIndex.includes(q)
+        : exam.title.toLowerCase().includes(q);
     });
   }, [
     safeExams,
@@ -292,7 +318,7 @@ export default function App() {
     selectedProvince,
     selectedYear,
     selectedStatus,
-    searchQuery,
+    deferredSearchQuery,
     stats,
     sessionRefreshTick
   ]);
@@ -321,7 +347,7 @@ export default function App() {
 
   const activeExamObj = useMemo(() => {
     if (!activeExamId) return null;
-    return safeExams.find((e) => e.id === activeExamId) || null;
+    return resolveExamByIdOrSlug(safeExams, activeExamId);
   }, [activeExamId, safeExams]);
 
   const avatarPalette = AVATAR_PALETTES[user.avatarId] || AVATAR_PALETTES.indigo;
@@ -441,7 +467,7 @@ export default function App() {
         {/* MAIN CONTENT AREA                                                */}
         {/* ================================================================ */}
         <main className="flex-1 w-full max-w-5xl mx-auto px-3.5 sm:px-6 pt-4 pb-24 md:pb-10">
-          {/* TAB 1: ĐỀ THI (2,050+ EXAMS LIBRARY OR ACTIVE EXAM RUNNER) */}
+          {/* TAB 1: ĐỀ THI (2,070+ EXAMS LIBRARY OR ACTIVE EXAM RUNNER) */}
           {activeTab === 'exams' && (
             <>
               {activeExamObj ? (
@@ -485,14 +511,14 @@ export default function App() {
                       </button>
                     </div>
 
-                    {/* Row 2: Search Input */}
+                    {/* Row 2: Deferred Search Input (Zero Keystroke Lag) */}
                     <div className="relative">
                       <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Tìm đề thi, trường chuyên (Phan Bội Châu, Amsterdam, Lê Hồng Phong...), tỉnh thành, THPTQG 9+..."
+                        placeholder="Tìm đề thi, trường chuyên (Lam Sơn, Phan Bội Châu, Amsterdam...), tỉnh thành, THPTQG 9+..."
                         className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:border-indigo-500"
                       />
                     </div>
@@ -776,15 +802,23 @@ export default function App() {
             </>
           )}
 
-          {/* TAB 2: TỪ VỰNG (FLASHCARDS + MISTAKE VAULT) */}
+          {/* TAB 2: TỪ VỰNG (LAZY FLASHCARDS + MISTAKE VAULT) */}
           {activeTab === 'flashcards' && (
-            <MobileFlashcardsView
-              vocabList={vocabList}
-              onAddVocab={handleSaveVocab}
-            />
+            <Suspense
+              fallback={
+                <div className="h-48 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-xs font-semibold text-slate-500">
+                  Đang tải Sổ Từ Vựng...
+                </div>
+              }
+            >
+              <LazyMobileFlashcardsView
+                vocabList={vocabList}
+                onAddVocab={handleSaveVocab}
+              />
+            </Suspense>
           )}
 
-          {/* TAB 3: GAME 3D (3D KANGAROO REFLEX JUMPER WITH PAUSE-ON-MISTAKE BREAKDOWN) */}
+          {/* TAB 3: GAME 3D (LAZY 3D KANGAROO REFLEX JUMPER) */}
           {activeTab === 'game3d' && (
             <Suspense
               fallback={
@@ -800,28 +834,36 @@ export default function App() {
             </Suspense>
           )}
 
-          {/* TAB 4: TÀI KHOẢN & CÀI ĐẶT */}
+          {/* TAB 4: TÀI KHOẢN & CÀI ĐẶT (LAZY PROFILE VIEW) */}
           {activeTab === 'profile' && (
-            <ProfileView
-              user={user}
-              exams={safeExams}
-              serverSubmissions={stats?.recentSubmissions || []}
-              initialSubTab={profileSubTab}
-              theme={theme}
-              onChangeTheme={setTheme}
-              fontScale={fontScale}
-              onChangeFontScale={setFontScale}
-              onOpenAuthModal={(mode) => {
-                setAuthModalMode(mode);
-                setAuthModalOpen(true);
-              }}
-              onLogout={() => {
-                const guest = loginAsGuest();
-                setUser(guest);
-              }}
-              onUserUpdated={(updated) => setUser(updated)}
-              onOpenExam={(examId) => handleOpenExam(examId, 'practice')}
-            />
+            <Suspense
+              fallback={
+                <div className="h-48 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-xs font-semibold text-slate-500">
+                  Đang tải Hồ sơ & Cài đặt...
+                </div>
+              }
+            >
+              <LazyProfileView
+                user={user}
+                exams={safeExams}
+                serverSubmissions={stats?.recentSubmissions || []}
+                initialSubTab={profileSubTab}
+                theme={theme}
+                onChangeTheme={setTheme}
+                fontScale={fontScale}
+                onChangeFontScale={setFontScale}
+                onOpenAuthModal={(mode) => {
+                  setAuthModalMode(mode);
+                  setAuthModalOpen(true);
+                }}
+                onLogout={() => {
+                  const guest = loginAsGuest();
+                  setUser(guest);
+                }}
+                onUserUpdated={(updated) => setUser(updated)}
+                onOpenExam={(examId) => handleOpenExam(examId, 'practice')}
+              />
+            </Suspense>
           )}
         </main>
 
@@ -853,31 +895,39 @@ export default function App() {
         </nav>
 
         {/* ================================================================ */}
-        {/* AUTH MODAL                                                       */}
+        {/* LAZY AUTH MODAL                                                  */}
         {/* ================================================================ */}
-        <AuthModal
-          isOpen={authModalOpen}
-          initialMode={authModalMode}
-          currentUser={user}
-          onClose={() => setAuthModalOpen(false)}
-          onAuthSuccess={(loggedInUser) => {
-            setUser(loggedInUser);
-            setSessionRefreshTick((t) => t + 1);
-          }}
-        />
+        {authModalOpen && (
+          <Suspense fallback={null}>
+            <LazyAuthModal
+              isOpen={authModalOpen}
+              initialMode={authModalMode}
+              currentUser={user}
+              onClose={() => setAuthModalOpen(false)}
+              onAuthSuccess={(loggedInUser) => {
+                setUser(loggedInUser);
+                setSessionRefreshTick((t) => t + 1);
+              }}
+            />
+          </Suspense>
+        )}
 
         {/* ================================================================ */}
-        {/* ADD / IMPORT EXAM SOURCE MODAL                                   */}
+        {/* LAZY ADD / IMPORT EXAM SOURCE MODAL                              */}
         {/* ================================================================ */}
-        <AddExamSourceModal
-          isOpen={addSourceModalOpen}
-          onClose={() => setAddSourceModalOpen(false)}
-          onExamCreated={(createdExam) => {
-            setRawExams((prev) => [createdExam, ...prev]);
-            setSessionRefreshTick((t) => t + 1);
-            handleOpenExam(createdExam.id, 'practice');
-          }}
-        />
+        {addSourceModalOpen && (
+          <Suspense fallback={null}>
+            <LazyAddExamSourceModal
+              isOpen={addSourceModalOpen}
+              onClose={() => setAddSourceModalOpen(false)}
+              onExamCreated={(createdExam) => {
+                setRawExams((prev) => [createdExam, ...prev]);
+                setSessionRefreshTick((t) => t + 1);
+                handleOpenExam(createdExam.id, 'practice');
+              }}
+            />
+          </Suspense>
+        )}
       </div>
     </GlobalErrorBoundary>
   );

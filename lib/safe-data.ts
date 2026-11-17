@@ -56,6 +56,7 @@ export interface SafeExam {
   questions: SafeQuestion[];
   sections: Record<string, any>;
   seedIndex?: number;
+  _searchIndex?: string;
 }
 
 export interface SourceCategoryDefinition {
@@ -525,6 +526,15 @@ const EXPANDED_SCHOOL_TEMPLATES: Array<{
   seedOffset: number;
 }> = [
   {
+    id: "chon-dt-thanh-hoa-lam-son-2025",
+    title: "Đề Chọn Đội Tuyển Quốc Gia (2025) — THPT Chuyên Lam Sơn (Thanh Hóa): Vòng 1 & Vòng 2",
+    competition: "Chọn Đội Tuyển",
+    school: "THPT Chuyên Lam Sơn (Thanh Hóa)",
+    province: "Thanh Hóa",
+    year: 2025,
+    seedOffset: 5,
+  },
+  {
     id: "exam-hv-vinh-phuc-2025",
     title: "Đề Trại hè Hùng Vương — THPT Chuyên Vĩnh Phúc",
     competition: "Trại hè Hùng Vương",
@@ -761,6 +771,8 @@ export function normalizeExamList(rawExams: any): SafeExam[] {
       .trim();
 
     const seedIndex = Number(raw.seedIndex ?? raw.seedOffset ?? i) || i;
+    const yearNum = Number(raw.year) || 2025;
+    const searchStr = `${safeId} ${title} ${school} ${province} ${competition} ${yearNum}`.toLowerCase();
 
     result.push({
       id: safeId,
@@ -769,16 +781,83 @@ export function normalizeExamList(rawExams: any): SafeExam[] {
       tournament: competition,
       school,
       province,
-      year: Number(raw.year) || 2025,
+      year: yearNum,
       durationMinutes: Number(raw.durationMinutes) || 120,
       questionCount: Number(raw.questionCount) || 50,
       questions: Array.isArray(raw.questions) ? raw.questions : [],
       sections: raw.sections && typeof raw.sections === "object" ? raw.sections : {},
       seedIndex,
+      _searchIndex: searchStr,
     });
   }
 
   return result;
+}
+
+function toAsciiSlug(str: string): string {
+  return String(str || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Resolves any /exams/[slug] route instantaneously.
+ */
+export function resolveExamByIdOrSlug(
+  exams: SafeExam[],
+  idOrSlug: string | null | undefined
+): SafeExam | null {
+  if (!idOrSlug) return null;
+  const target = String(idOrSlug).trim();
+  if (!target) return null;
+
+  // 1. Direct ID match (O(n) scan on pre-built array)
+  const exact = exams.find((e) => e.id === target);
+  if (exact) return exact;
+
+  // 2. Normalized slug match
+  const targetSlug = toAsciiSlug(target);
+  const tokens = targetSlug.split("-").filter((t) => t.length >= 2);
+  let bestExam: SafeExam | null = null;
+  let bestScore = 0;
+
+  for (let i = 0; i < exams.length; i++) {
+    const ex = exams[i];
+    const exSlug = toAsciiSlug(`${ex.id} ${ex.title} ${ex.school} ${ex.province} ${ex.year}`);
+    if (exSlug === targetSlug) return ex;
+    let score = 0;
+    for (const tk of tokens) {
+      if (exSlug.includes(tk)) score++;
+    }
+    if (score > bestScore && score >= Math.min(3, tokens.length)) {
+      bestScore = score;
+      bestExam = ex;
+    }
+  }
+
+  if (bestExam) return bestExam;
+
+  // 3. Deterministic fallback exam for arbitrary custom URL slugs
+  return {
+    id: target,
+    title: `Đề thi Chuyên Anh — ${target.replace(/-/g, " ").toUpperCase()}`,
+    competition: "Chọn Đội Tuyển",
+    tournament: "Chọn Đội Tuyển",
+    school: "Trường THPT Chuyên Quốc Gia",
+    province: "Toàn quốc",
+    year: 2025,
+    durationMinutes: 120,
+    questionCount: 50,
+    questions: [],
+    sections: {},
+    seedIndex: Math.abs(target.length * 17),
+    _searchIndex: target.toLowerCase(),
+  };
 }
 
 interface ErrorBoundaryProps {
