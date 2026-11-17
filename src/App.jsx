@@ -61,8 +61,8 @@ const LazyKangaroo3DGame = React.lazy(() =>
 const LazyAddExamSourceModal = React.lazy(() =>
   import('../components/exam/AddExamSourceModal')
 );
-const LazyMobileFlashcardsView = React.lazy(() =>
-  import('../components/flashcards/MobileFlashcardsView')
+const LazyLexicalMasteryStudio = React.lazy(() =>
+  import('../components/vocab/LexicalMasteryStudio')
 );
 const LazyProfileView = React.lazy(() =>
   import('../components/auth/ProfileView')
@@ -811,10 +811,7 @@ export default function App() {
                 </div>
               }
             >
-              <LazyMobileFlashcardsView
-                vocabList={vocabList}
-                onAddVocab={handleSaveVocab}
-              />
+              <LazyLexicalMasteryStudio />
             </Suspense>
           )}
 
