@@ -305,12 +305,11 @@ export default function MobileExamRunner({
 
   const handleAnswerRedemptionTwin = useCallback(
     (optId: "A" | "B" | "C" | "D") => {
-      if (!activeRedemptionTwin || twinSelectedAns !== null) return;
+      if (!activeRedemptionTwin) return;
       setTwinSelectedAns(optId);
       const isCorrect = optId === activeRedemptionTwin.correctAnswer;
-      const within5Sec = twinSecondsLeft > 0;
 
-      if (isCorrect && within5Sec) {
+      if (isCorrect) {
         setTwinLockedSuccess(true);
         addUserXp(25);
         const updatedLocked = recordLockedReflex(
@@ -318,18 +317,11 @@ export default function MobileExamRunner({
         );
         setLockedReflexIds(updatedLocked);
         speakLexicalChunkEnGB(activeRedemptionTwin.lexicalChunkTarget);
-      } else if (isCorrect) {
-        setTwinLockedSuccess(true);
-        addUserXp(15);
-        const updatedLocked = recordLockedReflex(
-          activeRedemptionTwin.originQuestionId
-        );
-        setLockedReflexIds(updatedLocked);
       } else {
         setTwinLockedSuccess(false);
       }
     },
-    [activeRedemptionTwin, twinSelectedAns, twinSecondsLeft]
+    [activeRedemptionTwin]
   );
 
   const handleToggleBookmark = useCallback(() => {
